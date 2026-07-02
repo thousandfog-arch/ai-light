@@ -51,17 +51,33 @@ fn done_light_is_removed_when_session_ends() {
 }
 
 #[test]
-fn aggregates_across_tools_by_severity() {
+fn aggregates_claude_sessions_by_project_severity() {
     let agg = StateAggregator::new();
     let cwd = PathBuf::from("/home/user/project");
 
     agg.add_session("s1".to_string(), Tool::ClaudeCode, &cwd, Status::Working);
-    agg.add_session("s2".to_string(), Tool::Codex, &cwd, Status::Error);
+    agg.add_session("s2".to_string(), Tool::ClaudeCode, &cwd, Status::Error);
 
     let lights = agg.get_lights();
     assert_eq!(lights.len(), 1);
     assert_eq!(lights[0].status, Status::Error);
     assert_eq!(lights[0].sessions.len(), 2);
+}
+
+#[test]
+fn codex_sessions_in_same_project_get_separate_lights() {
+    let agg = StateAggregator::new();
+    let cwd = PathBuf::from("/home/user/project");
+
+    agg.add_session("s1".to_string(), Tool::Codex, &cwd, Status::Working);
+    agg.add_session("s2".to_string(), Tool::Codex, &cwd, Status::Working);
+
+    let lights = agg.get_lights();
+    assert_eq!(lights.len(), 2);
+    assert!(lights
+        .iter()
+        .all(|light| light.project_path == "/home/user/project"));
+    assert!(lights.iter().all(|light| light.sessions.len() == 1));
 }
 
 #[test]

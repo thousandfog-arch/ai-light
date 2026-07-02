@@ -135,6 +135,7 @@ function createProjectLight(lightState) {
     title: tooltipFor(lightState),
   });
   root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
 
   root.addEventListener("click", () => {
     openCodex(root.dataset.codexSessionId || null);
@@ -143,11 +144,12 @@ function createProjectLight(lightState) {
   root.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const projectId = root.dataset.projectId;
+    const projectPath = root.dataset.projectPath || projectId;
     const codexSessionId = root.dataset.codexSessionId || null;
     const menuItems = [
       ["Open Codex", () => openCodex(codexSessionId)],
-      ["Open Folder", () => safeInvoke("open_project", { projectId })],
-      ["Copy Path", () => copyProjectPath(projectId)],
+      ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
+      ["Copy Path", () => copyProjectPath(projectPath)],
       ["Settings", () => safeInvoke("open_settings")],
     ];
 
@@ -189,6 +191,7 @@ function createLightElement({ label, status, title, standby = false }) {
 
 function updateProjectLight(root, lightState) {
   root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
   root.dataset.status = lightState.status;
   root.dataset.label = lightState.project_label || "unknown";
   root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
