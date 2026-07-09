@@ -180,6 +180,19 @@ pub fn resize_main_window(app: AppHandle, width: f64, height: f64) -> Result<(),
     Ok(())
 }
 
+#[tauri::command]
+pub fn set_main_window_always_on_top(app: AppHandle, always_on_top: bool) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is not available".to_string())?;
+
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|error| error.to_string())?;
+
+    Ok(always_on_top)
+}
+
 fn keep_window_on_current_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
     let Some(monitor) = window
         .current_monitor()

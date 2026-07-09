@@ -8,10 +8,13 @@ let lights = [];
 const lightElements = new Map();
 let lastWindowSize = { width: 0, height: 0 };
 let resizeFrame = 0;
+let isAlwaysOnTop = false;
 const WINDOW_GUTTER_X = 0;
 const WINDOW_GUTTER_Y = 0;
 const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
+const DRAG_DISTANCE_THRESHOLD = 4;
+const DRAG_CLICK_SUPPRESS_MS = 350;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
@@ -37,9 +40,17 @@ document.addEventListener("keydown", (event) => {
 
 let isDragging = false;
 let dragStart = null;
+let dragPointerStart = null;
+let suppressClicksUntil = 0;
 
 document.addEventListener("pointerdown", async (event) => {
   if (!shouldStartDrag(event)) return;
+
+  dragPointerStart = {
+    mouseX: event.screenX,
+    mouseY: event.screenY,
+    startedAt: performance.now(),
+  };
 
   try {
     await currentWindow?.startDragging?.();
@@ -64,6 +75,9 @@ document.addEventListener("pointermove", async (event) => {
 
   const dx = event.screenX - dragStart.mouseX;
   const dy = event.screenY - dragStart.mouseY;
+  if (distanceExceedsDragThreshold(dx, dy)) {
+    suppressNextClick();
+  }
 
   try {
     const PhysicalPosition = window.__TAURI__?.dpi?.PhysicalPosition;
@@ -116,12 +130,14 @@ function createStandbyLight() {
   root.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     showMenu(event.clientX, event.clientY, [
+      keepOnTopMenuItem(),
       ["Settings", () => safeInvoke("open_settings")],
       ["Quit", () => safeInvoke("quit_app")],
     ]);
   });
 
-  root.addEventListener("click", () => {
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
     openCodex();
   });
 
@@ -137,7 +153,8 @@ function createProjectLight(lightState) {
   root.dataset.projectId = lightState.project_id;
   root.dataset.projectPath = lightState.project_path || lightState.project_id;
 
-  root.addEventListener("click", () => {
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
     openCodex(root.dataset.codexSessionId || null);
   });
 
@@ -147,6 +164,7 @@ function createProjectLight(lightState) {
     const projectPath = root.dataset.projectPath || projectId;
     const codexSessionId = root.dataset.codexSessionId || null;
     const menuItems = [
+      keepOnTopMenuItem(),
       ["Open Codex", () => openCodex(codexSessionId)],
       ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
       ["Copy Path", () => copyProjectPath(projectPath)],
@@ -262,6 +280,24 @@ function hideMenu() {
   scheduleWindowResize();
 }
 
+function keepOnTopMenuItem() {
+  return [
+    `Keep on Top: ${isAlwaysOnTop ? "On" : "Off"}`,
+    toggleAlwaysOnTop,
+  ];
+}
+
+async function toggleAlwaysOnTop() {
+  const nextValue = !isAlwaysOnTop;
+  const updated = await safeInvoke("set_main_window_always_on_top", {
+    alwaysOnTop: nextValue,
+  });
+
+  if (typeof updated === "boolean") {
+    isAlwaysOnTop = updated;
+  }
+}
+
 function scheduleWindowResize() {
   if (resizeFrame) {
     cancelAnimationFrame(resizeFrame);
@@ -347,6 +383,37 @@ function shouldStartDrag(event) {
   }
 
   return Boolean(event.target.closest("#lights-container, .traffic-light"));
+}
+
+function suppressNextClick() {
+  suppressClicksUntil = performance.now() + DRAG_CLICK_SUPPRESS_MS;
+}
+
+function consumeSuppressedClick(event) {
+  if (dragPointerStart) {
+    const dx = event.screenX - dragPointerStart.mouseX;
+    const dy = event.screenY - dragPointerStart.mouseY;
+    const isSameGesture = performance.now() - dragPointerStart.startedAt < 3000;
+    dragPointerStart = null;
+
+    if (isSameGesture && distanceExceedsDragThreshold(dx, dy)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+  }
+
+  if (performance.now() > suppressClicksUntil) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function distanceExceedsDragThreshold(dx, dy) {
+  return Math.hypot(dx, dy) >= DRAG_DISTANCE_THRESHOLD;
 }
 
 async function safeInvoke(command, payload) {

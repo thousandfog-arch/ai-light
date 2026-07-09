@@ -42,6 +42,7 @@ fn main() {
             ipc::resume_monitoring,
             ipc::open_settings,
             ipc::resize_main_window,
+            ipc::set_main_window_always_on_top,
             ipc::check_hooks,
             ipc::install_hooks_command,
             ipc::remove_hooks_command,
