@@ -8,15 +8,18 @@ let lights = [];
 const lightElements = new Map();
 let lastWindowSize = { width: 0, height: 0 };
 let resizeFrame = 0;
-const WINDOW_GUTTER_X = 8;
-const WINDOW_GUTTER_Y = 26;
-const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 16;
+let isAlwaysOnTop = false;
+const WINDOW_GUTTER_X = 0;
+const WINDOW_GUTTER_Y = 0;
+const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
+const DRAG_DISTANCE_THRESHOLD = 4;
+const DRAG_CLICK_SUPPRESS_MS = 350;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
-const appHandle = createAppHandle();
-container.appendChild(appHandle);
+const standbyLight = createStandbyLight();
+container.appendChild(standbyLight);
 
 tauriEvent?.listen("state-changed", (event) => {
   lights = Array.isArray(event.payload) ? event.payload : [];
@@ -37,9 +40,17 @@ document.addEventListener("keydown", (event) => {
 
 let isDragging = false;
 let dragStart = null;
+let dragPointerStart = null;
+let suppressClicksUntil = 0;
 
 document.addEventListener("pointerdown", async (event) => {
   if (!shouldStartDrag(event)) return;
+
+  dragPointerStart = {
+    mouseX: event.screenX,
+    mouseY: event.screenY,
+    startedAt: performance.now(),
+  };
 
   try {
     await currentWindow?.startDragging?.();
@@ -64,6 +75,9 @@ document.addEventListener("pointermove", async (event) => {
 
   const dx = event.screenX - dragStart.mouseX;
   const dy = event.screenY - dragStart.mouseY;
+  if (distanceExceedsDragThreshold(dx, dy)) {
+    suppressNextClick();
+  }
 
   try {
     const PhysicalPosition = window.__TAURI__?.dpi?.PhysicalPosition;
@@ -82,7 +96,7 @@ document.addEventListener("pointerup", () => {
 
 function render() {
   const visibleProjectIds = new Set(lights.map((light) => light.project_id));
-  appHandle.hidden = lights.length > 0;
+  standbyLight.hidden = lights.length > 0;
 
   for (const light of lights) {
     let element = lightElements.get(light.project_id);
@@ -105,18 +119,26 @@ function render() {
   scheduleWindowResize();
 }
 
-function createAppHandle() {
-  const root = document.createElement("section");
-  root.className = "app-handle";
-  root.title = "AI Light";
-  root.textContent = "AI";
+function createStandbyLight() {
+  const root = createLightElement({
+    label: "AI Light",
+    status: "Idle",
+    title: "AI Light\nIdle",
+    standby: true,
+  });
 
   root.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     showMenu(event.clientX, event.clientY, [
+      keepOnTopMenuItem(),
       ["Settings", () => safeInvoke("open_settings")],
       ["Quit", () => safeInvoke("quit_app")],
     ]);
+  });
+
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
+    openCodex();
   });
 
   return root;
@@ -129,24 +151,32 @@ function createProjectLight(lightState) {
     title: tooltipFor(lightState),
   });
   root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
 
-  root.addEventListener("click", () => {
-    const projectId = root.dataset.projectId;
-    const status = root.dataset.status;
-    if (status === "Error" || status === "Done") {
-      safeInvoke("confirm_light", { projectId });
-    }
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
+    openCodex(root.dataset.codexSessionId || null);
   });
 
   root.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const projectId = root.dataset.projectId;
-    showMenu(event.clientX, event.clientY, [
-      ["Open", () => safeInvoke("open_project", { projectId })],
-      ["Copy Path", () => copyProjectPath(projectId)],
+    const projectPath = root.dataset.projectPath || projectId;
+    const codexSessionId = root.dataset.codexSessionId || null;
+    const menuItems = [
+      keepOnTopMenuItem(),
+      ["Open Codex", () => openCodex(codexSessionId)],
+      ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
+      ["Copy Path", () => copyProjectPath(projectPath)],
       ["Settings", () => safeInvoke("open_settings")],
-      ["Remove", () => safeInvoke("remove_light", { projectId })],
-    ]);
+    ];
+
+    if (root.dataset.status === "Error" || root.dataset.status === "Done") {
+      menuItems.push(["Clear", () => safeInvoke("confirm_light", { projectId })]);
+    }
+
+    menuItems.push(["Remove", () => safeInvoke("remove_light", { projectId })]);
+    showMenu(event.clientX, event.clientY, menuItems);
   });
 
   updateProjectLight(root, lightState);
@@ -158,47 +188,47 @@ function createLightElement({ label, status, title, standby = false }) {
   root.className = `traffic-light${standby ? " standby" : ""}`;
   root.title = title;
   root.dataset.status = status;
+  root.dataset.label = label || "unknown";
 
-  const housing = document.createElement("div");
-  housing.className = "light-housing";
+  const panel = document.createElement("div");
+  panel.className = "panel-art";
+  panel.setAttribute("aria-hidden", "true");
 
-  housing.appendChild(createLamp("red", status === "Error"));
-  housing.appendChild(createLamp("yellow", status === "Working"));
-  housing.appendChild(createLamp("green", status === "Done"));
+  const redLamp = document.createElement("div");
+  redLamp.className = "status-lamp status-lamp-red";
 
-  const labelEl = document.createElement("div");
-  labelEl.className = "light-label";
-  labelEl.textContent = label || "unknown";
+  const yellowLamp = document.createElement("div");
+  yellowLamp.className = "status-lamp status-lamp-yellow";
 
-  root.append(labelEl, housing);
+  const greenLamp = document.createElement("div");
+  greenLamp.className = "status-lamp status-lamp-green";
+
+  root.append(panel, redLamp, yellowLamp, greenLamp);
   return root;
 }
 
 function updateProjectLight(root, lightState) {
   root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
   root.dataset.status = lightState.status;
+  root.dataset.label = lightState.project_label || "unknown";
+  root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
   root.title = tooltipFor(lightState);
-  root.classList.toggle(
-    "is-actionable",
-    lightState.status === "Error" || lightState.status === "Done",
-  );
-
-  const label = root.querySelector(".light-label");
-  if (label) {
-    label.textContent = lightState.project_label || "unknown";
-  }
-
-  root.querySelector(".lamp.red")?.classList.toggle("on", lightState.status === "Error");
-  root
-    .querySelector(".lamp.yellow")
-    ?.classList.toggle("on", lightState.status === "Working");
-  root.querySelector(".lamp.green")?.classList.toggle("on", lightState.status === "Done");
+  root.classList.add("is-actionable");
 }
 
-function createLamp(color, isOn) {
-  const lamp = document.createElement("div");
-  lamp.className = `lamp ${color}${isOn ? " on" : ""}`;
-  return lamp;
+function selectCodexSessionId(lightState) {
+  const sessions = Array.isArray(lightState.sessions) ? lightState.sessions : [];
+  const codexSessions = sessions.filter((session) => session.tool === "Codex");
+  if (codexSessions.length === 0) {
+    return null;
+  }
+
+  const matchingStatus = [...codexSessions]
+    .reverse()
+    .find((session) => session.status === lightState.status);
+
+  return (matchingStatus || codexSessions[codexSessions.length - 1]).session_id || null;
 }
 
 function tooltipFor(lightState) {
@@ -254,6 +284,24 @@ function showMenu(x, y, items) {
 function hideMenu() {
   menu.hidden = true;
   scheduleWindowResize();
+}
+
+function keepOnTopMenuItem() {
+  return [
+    `Keep on Top: ${isAlwaysOnTop ? "On" : "Off"}`,
+    toggleAlwaysOnTop,
+  ];
+}
+
+async function toggleAlwaysOnTop() {
+  const nextValue = !isAlwaysOnTop;
+  const updated = await safeInvoke("set_main_window_always_on_top", {
+    alwaysOnTop: nextValue,
+  });
+
+  if (typeof updated === "boolean") {
+    isAlwaysOnTop = updated;
+  }
 }
 
 function scheduleWindowResize() {
@@ -343,6 +391,37 @@ function shouldStartDrag(event) {
   return Boolean(event.target.closest("#lights-container, .traffic-light"));
 }
 
+function suppressNextClick() {
+  suppressClicksUntil = performance.now() + DRAG_CLICK_SUPPRESS_MS;
+}
+
+function consumeSuppressedClick(event) {
+  if (dragPointerStart) {
+    const dx = event.screenX - dragPointerStart.mouseX;
+    const dy = event.screenY - dragPointerStart.mouseY;
+    const isSameGesture = performance.now() - dragPointerStart.startedAt < 3000;
+    dragPointerStart = null;
+
+    if (isSameGesture && distanceExceedsDragThreshold(dx, dy)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+  }
+
+  if (performance.now() > suppressClicksUntil) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function distanceExceedsDragThreshold(dx, dy) {
+  return Math.hypot(dx, dy) >= DRAG_DISTANCE_THRESHOLD;
+}
+
 async function safeInvoke(command, payload) {
   try {
     return await tauriCore?.invoke(command, payload);
@@ -350,6 +429,10 @@ async function safeInvoke(command, payload) {
     console.debug(command, error);
     return undefined;
   }
+}
+
+function openCodex(sessionId = null) {
+  return safeInvoke("open_codex", { sessionId });
 }
 
 async function refreshLights() {

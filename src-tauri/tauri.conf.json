@@ -47,11 +47,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.png"],
-    "resources": {
-      "../target/release/ai-light-hook.exe": "ai-light-hook.exe",
-      "../target/release/WebView2Loader.dll": "WebView2Loader.dll"
-    },
+    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

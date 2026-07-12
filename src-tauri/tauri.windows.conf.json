@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "../target/release/ai-light-hook.exe": "ai-light-hook.exe"
+      "../target/release/ai-light-hook.exe": "ai-light-hook.exe",
+      "../target/release/WebView2Loader.dll": "WebView2Loader.dll"
     }
   }
 }

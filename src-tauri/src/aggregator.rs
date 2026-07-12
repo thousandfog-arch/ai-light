@@ -25,19 +25,19 @@ impl StateAggregator {
 
     pub fn add_session(&self, session_id: String, tool: Tool, cwd: &Path, status: Status) {
         {
-            let (project_id, project_label) = identify_project(cwd);
+            let (project_path, project_label) = identify_project(cwd);
+            let light_id = light_id_for_session(&project_path, &session_id, tool);
             let mut state = self.state.write().expect("aggregator state lock poisoned");
 
             remove_existing_session(&mut state, &session_id);
 
-            if !state.lights.contains_key(&project_id) {
-                state.light_order.push(project_id.clone());
+            if !state.lights.contains_key(&light_id) {
+                state.light_order.push(light_id.clone());
             }
 
-            let light = state
-                .lights
-                .entry(project_id.clone())
-                .or_insert_with(|| LightState::new(project_id.clone(), project_label));
+            let light = state.lights.entry(light_id.clone()).or_insert_with(|| {
+                LightState::with_project_path(light_id.clone(), project_path.clone(), project_label)
+            });
 
             light.sessions.push(SessionRef {
                 session_id: session_id.clone(),
@@ -48,7 +48,7 @@ impl StateAggregator {
             light.last_event_at = Instant::now();
             light.aggregate_status();
 
-            state.session_to_project.insert(session_id, project_id);
+            state.session_to_project.insert(session_id, light_id);
         }
 
         self.notify_change();
@@ -288,4 +288,11 @@ fn remove_light_by_project(state: &mut AggregatorState, project_id: &str) -> boo
         .retain(|existing_project_id| existing_project_id != project_id);
 
     removed
+}
+
+fn light_id_for_session(project_path: &str, session_id: &str, tool: Tool) -> String {
+    match tool {
+        Tool::Codex => format!("{project_path}#codex:{session_id}"),
+        Tool::ClaudeCode => project_path.to_string(),
+    }
 }

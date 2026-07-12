@@ -66,6 +66,7 @@ pub struct SessionRef {
 #[derive(Debug, Clone, Serialize)]
 pub struct LightState {
     pub project_id: String,
+    pub project_path: String,
     pub project_label: String,
     pub status: Status,
     pub sessions: Vec<SessionRef>,
@@ -76,8 +77,17 @@ pub struct LightState {
 
 impl LightState {
     pub fn new(project_id: String, project_label: String) -> Self {
+        Self::with_project_path(project_id.clone(), project_id, project_label)
+    }
+
+    pub fn with_project_path(
+        project_id: String,
+        project_path: String,
+        project_label: String,
+    ) -> Self {
         Self {
             project_id,
+            project_path,
             project_label,
             status: Status::Idle,
             sessions: Vec::new(),

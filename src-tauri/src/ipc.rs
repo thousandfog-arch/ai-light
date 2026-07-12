@@ -71,6 +71,17 @@ pub fn open_project(project_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_codex(session_id: Option<String>) -> Result<(), String> {
+    if let Some(session_id) = session_id.filter(|session_id| !session_id.trim().is_empty()) {
+        if open_codex_thread(&session_id).is_ok() {
+            return Ok(());
+        }
+    }
+
+    open_codex_app()
+}
+
+#[tauri::command]
 pub fn open_session_logs(project_id: String) -> Result<(), String> {
     let path = claude_project_log_dir(&project_id)?;
     open_path(&path.to_string_lossy())
@@ -173,6 +184,19 @@ pub fn resize_main_window(app: AppHandle, width: f64, height: f64) -> Result<(),
 
     keep_window_on_current_monitor(&window)?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_main_window_always_on_top(app: AppHandle, always_on_top: bool) -> Result<bool, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window is not available".to_string())?;
+
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|error| error.to_string())?;
+
+    Ok(always_on_top)
 }
 
 fn keep_window_on_current_monitor(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -293,6 +317,42 @@ fn open_path(path: &str) -> Result<(), String> {
 
     command.spawn().map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn open_codex_thread(session_id: &str) -> Result<(), String> {
+    let session_id = session_id.trim();
+    if !is_safe_codex_thread_id(session_id) {
+        return Err("invalid Codex thread id".to_string());
+    }
+
+    open_url(&format!("codex://threads/{session_id}"))
+}
+
+fn open_codex_app() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-a", "Codex"])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    open_url("codex://")
+}
+
+fn open_url(url: &str) -> Result<(), String> {
+    let mut command = platform_open_command(url)?;
+    command.spawn().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn is_safe_codex_thread_id(session_id: &str) -> bool {
+    !session_id.is_empty()
+        && session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
 fn claude_project_log_dir(project_id: &str) -> Result<PathBuf, String> {
