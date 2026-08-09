@@ -8,6 +8,7 @@ use std::path::PathBuf;
 pub struct AppConfig {
     pub window_x: i32,
     pub window_y: i32,
+    pub light_size: String,
     pub monitoring_paused: bool,
     pub hooks_installed: bool,
     pub http_bind: String,
@@ -19,6 +20,7 @@ impl Default for AppConfig {
         Self {
             window_x: 100,
             window_y: 100,
+            light_size: "medium".to_string(),
             monitoring_paused: false,
             hooks_installed: false,
             http_bind: "127.0.0.1".to_string(),

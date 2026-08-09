@@ -3,8 +3,12 @@ const tauriCore = window.__TAURI__?.core;
 const currentWindow =
   window.__TAURI__?.window?.getCurrentWindow?.() ??
   window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
+const currentWindowLabel = currentWindow?.label ?? "main";
+const isLightWindow = currentWindowLabel.startsWith("light-");
 
 let lights = [];
+let currentProjectId = null;
+let lightSize = "medium";
 const lightElements = new Map();
 let lastWindowSize = { width: 0, height: 0 };
 let resizeFrame = 0;
@@ -15,6 +19,7 @@ const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
 const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
+const LIGHT_WIDTHS = { small: 54, medium: 66, large: 80 };
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
@@ -24,6 +29,10 @@ container.appendChild(standbyLight);
 tauriEvent?.listen("state-changed", (event) => {
   lights = Array.isArray(event.payload) ? event.payload : [];
   render();
+});
+
+tauriEvent?.listen("light-size-changed", (event) => {
+  applyLightSize(event.payload);
 });
 
 document.addEventListener("click", (event) => {
@@ -95,10 +104,13 @@ document.addEventListener("pointerup", () => {
 });
 
 function render() {
-  const visibleProjectIds = new Set(lights.map((light) => light.project_id));
-  standbyLight.hidden = lights.length > 0;
+  const displayedLights = isLightWindow
+    ? lights.filter((light) => light.project_id === currentProjectId)
+    : [];
+  const visibleProjectIds = new Set(displayedLights.map((light) => light.project_id));
+  standbyLight.hidden = isLightWindow || lights.length > 0;
 
-  for (const light of lights) {
+  for (const light of displayedLights) {
     let element = lightElements.get(light.project_id);
     if (!element) {
       element = createProjectLight(light);
@@ -121,7 +133,7 @@ function render() {
 
 function createStandbyLight() {
   const root = createLightElement({
-    label: "AI Light",
+    label: "",
     status: "Idle",
     title: "AI Light\nIdle",
     standby: true,
@@ -165,6 +177,7 @@ function createProjectLight(lightState) {
     const codexSessionId = root.dataset.codexSessionId || null;
     const menuItems = [
       keepOnTopMenuItem(),
+      ["Detach from Group", () => safeInvoke("detach_current_light")],
       ["Open Codex", () => openCodex(codexSessionId)],
       ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
       ["Copy Path", () => copyProjectPath(projectPath)],
@@ -203,7 +216,11 @@ function createLightElement({ label, status, title, standby = false }) {
   const greenLamp = document.createElement("div");
   greenLamp.className = "status-lamp status-lamp-green";
 
-  root.append(panel, redLamp, yellowLamp, greenLamp);
+  const projectLabel = document.createElement("div");
+  projectLabel.className = "project-label";
+  projectLabel.textContent = standby ? "" : label || "unknown";
+
+  root.append(panel, projectLabel, redLamp, yellowLamp, greenLamp);
   return root;
 }
 
@@ -212,9 +229,18 @@ function updateProjectLight(root, lightState) {
   root.dataset.projectPath = lightState.project_path || lightState.project_id;
   root.dataset.status = lightState.status;
   root.dataset.label = lightState.project_label || "unknown";
+  const projectLabel = root.querySelector(".project-label");
+  if (projectLabel) {
+    projectLabel.textContent = lightState.project_label || "unknown";
+  }
   root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
   root.title = tooltipFor(lightState);
   root.classList.add("is-actionable");
+  if (isLightWindow) {
+    safeInvoke("is_current_light_attached").then((attached) => {
+      root.classList.toggle("is-attached", Boolean(attached));
+    });
+  }
 }
 
 function selectCodexSessionId(lightState) {
@@ -254,7 +280,7 @@ function showMenu(x, y, items) {
   menu.replaceChildren();
 
   for (const [label, action, className] of [
-    ["Close", () => safeInvoke("hide_main_window"), "menu-close"],
+    ["Close", () => safeInvoke("hide_all_windows"), "menu-close"],
     ...items,
   ]) {
     const item = document.createElement("button");
@@ -298,7 +324,7 @@ function keepOnTopMenuItem() {
 
 async function toggleAlwaysOnTop() {
   const nextValue = !isAlwaysOnTop;
-  const updated = await safeInvoke("set_main_window_always_on_top", {
+  const updated = await safeInvoke("set_current_window_always_on_top", {
     alwaysOnTop: nextValue,
   });
 
@@ -340,15 +366,15 @@ async function resizeWindowToContent() {
     height = Math.max(height, Math.ceil(menuRect.bottom + MENU_EDGE_GUTTER));
   }
 
-  width = Math.max(72, width);
-  height = Math.max(76, height);
+  width = Math.max(48, width);
+  height = Math.max(96, height);
 
   if (lastWindowSize.width === width && lastWindowSize.height === height) {
     return;
   }
 
   try {
-    await tauriCore?.invoke("resize_main_window", { width, height });
+    await tauriCore?.invoke("resize_current_window", { width, height });
     lastWindowSize = { width, height };
     return;
   } catch (error) {
@@ -380,6 +406,19 @@ function measureVisibleContent() {
   const height = Math.max(...children.map((child) => child.offsetHeight));
 
   return { width, height, count: children.length };
+}
+
+function applyLightSize(size) {
+  if (!Object.hasOwn(LIGHT_WIDTHS, size)) {
+    size = "medium";
+  }
+  lightSize = size;
+  document.documentElement.style.setProperty(
+    "--light-width",
+    `${LIGHT_WIDTHS[lightSize]}px`,
+  );
+  lastWindowSize = { width: 0, height: 0 };
+  scheduleWindowResize();
 }
 
 function shouldStartDrag(event) {
@@ -483,6 +522,15 @@ async function showDiagnostics() {
   alert(text);
 }
 
-refreshLights();
-scheduleWindowResize();
-window.setInterval(refreshLights, 1000);
+async function initialize() {
+  if (isLightWindow) {
+    currentProjectId = await safeInvoke("current_window_project");
+  }
+  const config = await safeInvoke("get_app_config");
+  applyLightSize(config?.lightSize || "medium");
+  await refreshLights();
+  scheduleWindowResize();
+  window.setInterval(refreshLights, 1000);
+}
+
+initialize();

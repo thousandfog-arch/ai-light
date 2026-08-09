@@ -28,6 +28,9 @@ jobs:
         with:
           workspaces: ". -> target"
 
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
       - name: Build Claude Code hook helper
         run: cargo build -p ai-light-hook --release
 

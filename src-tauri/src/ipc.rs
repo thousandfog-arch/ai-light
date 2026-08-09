@@ -14,7 +14,9 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, LogicalSize, Manager, Size, State};
+use tauri::{AppHandle, LogicalSize, Manager, Size, State, WebviewWindow};
+
+use crate::light_windows::LightWindowManager;
 
 #[derive(Debug, Serialize)]
 pub struct Diagnostics {
@@ -38,6 +40,7 @@ pub struct Diagnostics {
 #[serde(rename_all = "camelCase")]
 pub struct AppConfigView {
     pub config_path: String,
+    pub light_size: String,
     pub http_bind: String,
     pub http_port: Option<u16>,
     pub runtime_port: Option<u16>,
@@ -105,6 +108,7 @@ pub fn get_app_config() -> AppConfigView {
     let config = load_app_config();
     AppConfigView {
         config_path: get_config_path().to_string_lossy().to_string(),
+        light_size: config.light_size,
         http_bind: config.http_bind,
         http_port: config.http_port,
         runtime_port: load_runtime_config().map(|runtime| runtime.http_port),
@@ -172,6 +176,64 @@ pub fn open_settings(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn hide_main_window(app: AppHandle) -> Result<(), String> {
     crate::tray::hide_main_window(&app)
+}
+
+#[tauri::command]
+pub fn hide_all_windows(
+    app: AppHandle,
+    manager: State<Arc<LightWindowManager>>,
+) -> Result<(), String> {
+    manager.hide_all(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn current_window_project(
+    window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
+) -> Option<String> {
+    manager.project_for_window(window.label())
+}
+
+#[tauri::command]
+pub fn detach_current_light(
+    window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
+) -> bool {
+    manager.detach(window.label())
+}
+
+#[tauri::command]
+pub fn is_current_light_attached(
+    window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
+) -> bool {
+    manager.is_attached(window.label())
+}
+
+#[tauri::command]
+pub fn resize_current_window(
+    window: WebviewWindow,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let width = width.clamp(48.0, 360.0);
+    let height = height.clamp(96.0, 600.0);
+    window
+        .set_size(Size::Logical(LogicalSize::new(width, height)))
+        .map_err(|error| error.to_string())?;
+    crate::window_state::ensure_window_visible(&window)
+}
+
+#[tauri::command]
+pub fn set_current_window_always_on_top(
+    window: WebviewWindow,
+    always_on_top: bool,
+) -> Result<bool, String> {
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|error| error.to_string())?;
+    Ok(always_on_top)
 }
 
 #[tauri::command]

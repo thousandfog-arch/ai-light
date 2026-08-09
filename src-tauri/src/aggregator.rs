@@ -291,8 +291,21 @@ fn remove_light_by_project(state: &mut AggregatorState, project_id: &str) -> boo
 }
 
 fn light_id_for_session(project_path: &str, session_id: &str, tool: Tool) -> String {
-    match tool {
-        Tool::Codex => format!("{project_path}#codex:{session_id}"),
-        Tool::ClaudeCode | Tool::OpenCode | Tool::Reasonix => project_path.to_string(),
+    let _ = (session_id, tool);
+    project_path.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_tools_share_one_light_per_project() {
+        for tool in Tool::all() {
+            assert_eq!(
+                light_id_for_session("D:/project", "session-a", *tool),
+                "D:/project"
+            );
+        }
     }
 }

@@ -105,3 +105,34 @@ impl LightState {
             .unwrap_or(Status::Idle);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(status: Status) -> SessionRef {
+        SessionRef {
+            session_id: format!("{status:?}"),
+            tool: Tool::Codex,
+            status,
+            started_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn aggregate_status_keeps_error_working_done_idle_priority() {
+        let mut light = LightState::new("project".into(), "project".into());
+        light.sessions = vec![
+            session(Status::Idle),
+            session(Status::Done),
+            session(Status::Working),
+            session(Status::Error),
+        ];
+        light.aggregate_status();
+        assert_eq!(light.status, Status::Error);
+
+        light.sessions.retain(|item| item.status != Status::Error);
+        light.aggregate_status();
+        assert_eq!(light.status, Status::Working);
+    }
+}

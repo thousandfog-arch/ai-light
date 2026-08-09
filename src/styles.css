@@ -5,6 +5,7 @@
 }
 
 :root {
+  --light-width: 66px;
   color-scheme: dark;
   font-family: "Monaco", "Menlo", "SFMono-Regular", monospace;
   background: transparent;
@@ -31,8 +32,8 @@ body {
   align-items: flex-start;
   gap: 8px;
   width: max-content;
-  min-width: 80px;
-  min-height: 174px;
+  min-width: var(--light-width);
+  min-height: calc(var(--light-width) * 1630 / 752);
 }
 
 [hidden] {
@@ -41,7 +42,7 @@ body {
 
 .traffic-light {
   position: relative;
-  width: 80px;
+  width: var(--light-width);
   aspect-ratio: 752 / 1630;
   flex: 0 0 auto;
   cursor: default;
@@ -49,6 +50,10 @@ body {
 
 .traffic-light.is-actionable {
   cursor: pointer;
+}
+
+.traffic-light.is-attached .project-label {
+  border-color: rgba(84, 196, 184, 0.5);
 }
 
 .panel-art {
@@ -59,13 +64,44 @@ body {
   background-repeat: no-repeat;
   background-size: 100% 100%;
   image-rendering: pixelated;
+  filter: brightness(0.7) saturate(0.62);
+  opacity: 0.88;
+}
+
+.project-label {
+  position: absolute;
+  top: 5.7%;
+  left: 12%;
+  right: 12%;
+  height: 8.6%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  overflow: hidden;
+  border: 1px solid rgba(54, 177, 169, 0.28);
+  border-radius: 2px;
+  color: rgba(173, 236, 227, 0.86);
+  background: rgba(2, 13, 18, 0.97);
+  font-size: calc(var(--light-width) * 0.102);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 3px rgba(25, 173, 159, 0.35);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.traffic-light.standby .project-label {
+  color: transparent;
 }
 
 .status-lamp {
   position: absolute;
   left: 50%;
-  width: 34px;
-  height: 34px;
+  width: calc(var(--light-width) * 0.425);
+  height: calc(var(--light-width) * 0.425);
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
@@ -88,7 +124,7 @@ body {
 }
 
 .status-lamp::after {
-  inset: -7px;
+  inset: calc(var(--light-width) * -0.0875);
   opacity: 0.75;
   filter: blur(7px);
 }
@@ -151,37 +187,6 @@ body {
 .traffic-light[data-status="Done"] .status-lamp-green {
   opacity: 0.98;
   animation: green-settle 2.2s ease-in-out infinite;
-}
-
-.traffic-light::after {
-  content: attr(data-label);
-  position: absolute;
-  left: 22px;
-  right: 22px;
-  bottom: 8px;
-  color: rgba(110, 255, 232, 0.96);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 10px;
-  text-align: center;
-  text-shadow:
-    0 0 6px rgba(31, 233, 216, 0.44),
-    1px 1px 0 rgba(3, 16, 23, 0.96);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms linear;
-}
-
-.traffic-light:hover::after,
-.traffic-light:focus-visible::after {
-  opacity: 1;
-}
-
-.traffic-light.standby::after {
-  content: "";
 }
 
 @keyframes red-alert {

@@ -5,9 +5,10 @@ use ai_light::app_lock::AppLock;
 use ai_light::config::load_app_config;
 use ai_light::http_server::{existing_instance_is_healthy, start_http_server};
 use std::sync::Arc;
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 mod ipc;
+mod light_windows;
 mod tray;
 mod window_state;
 
@@ -24,9 +25,11 @@ fn main() {
     let app_config = load_app_config();
     let aggregator = Arc::new(StateAggregator::new());
     let server_aggregator = Arc::clone(&aggregator);
+    let light_window_manager = Arc::new(light_windows::LightWindowManager::new());
 
     tauri::Builder::default()
         .manage(Arc::clone(&aggregator))
+        .manage(Arc::clone(&light_window_manager))
         .manage(app_lock)
         .invoke_handler(tauri::generate_handler![
             ipc::confirm_light,
@@ -44,6 +47,12 @@ fn main() {
             ipc::resume_monitoring,
             ipc::open_settings,
             ipc::hide_main_window,
+            ipc::hide_all_windows,
+            ipc::current_window_project,
+            ipc::detach_current_light,
+            ipc::is_current_light_attached,
+            ipc::resize_current_window,
+            ipc::set_current_window_always_on_top,
             ipc::resize_main_window,
             ipc::set_main_window_always_on_top,
             ipc::check_hooks,
@@ -72,11 +81,12 @@ fn main() {
             window_state::restore_main_window_position(&window, &app_config)
                 .map_err(std::io::Error::other)?;
 
-            let main_window = window.clone();
+            let close_manager = Arc::clone(&light_window_manager);
+            let close_app = app.handle().clone();
             window.on_window_event(move |event| match event {
                 WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
-                    let _ = main_window.hide();
+                    close_manager.hide_all(&close_app);
                 }
                 WindowEvent::Moved(position) => {
                     let _ = window_state::save_position(position.x, position.y);
@@ -95,17 +105,36 @@ fn main() {
             }
 
             let emit_aggregator = Arc::clone(&aggregator);
-            let emit_window = window.clone();
+            let sync_manager = Arc::clone(&light_window_manager);
+            let sync_app = app.handle().clone();
+            let sync_size = app_config.light_size.clone();
+            let sync_x = app_config.window_x;
+            let sync_y = app_config.window_y;
 
             aggregator.set_on_change(move || {
-                let _ = emit_window.emit("state-changed", emit_aggregator.get_lights());
+                let lights = emit_aggregator.get_lights();
+                let manager = Arc::clone(&sync_manager);
+                let app_handle = sync_app.clone();
+                let size = sync_size.clone();
+                let scheduler = sync_app.clone();
+                let _ = scheduler.run_on_main_thread(move || {
+                    let _ = manager.sync(&app_handle, &lights, &size, sync_x, sync_y);
+                });
             });
 
             start_http_server(Arc::clone(&server_aggregator), &app_config)
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             ai_light::codex_watcher::start_codex_watcher(Arc::clone(&aggregator))?;
 
-            window.emit("state-changed", aggregator.get_lights())?;
+            light_window_manager
+                .sync(
+                    app.handle(),
+                    &aggregator.get_lights(),
+                    &app_config.light_size,
+                    app_config.window_x,
+                    app_config.window_y,
+                )
+                .map_err(std::io::Error::other)?;
 
             if let Ok(resource_dir) = app.path().resource_dir() {
                 let _ = ai_light::hook_installer::install_hook_binary_from_resource(&resource_dir);
