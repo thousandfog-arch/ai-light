@@ -293,6 +293,6 @@ fn remove_light_by_project(state: &mut AggregatorState, project_id: &str) -> boo
 fn light_id_for_session(project_path: &str, session_id: &str, tool: Tool) -> String {
     match tool {
         Tool::Codex => format!("{project_path}#codex:{session_id}"),
-        Tool::ClaudeCode => project_path.to_string(),
+        Tool::ClaudeCode | Tool::OpenCode | Tool::Reasonix => project_path.to_string(),
     }
 }
