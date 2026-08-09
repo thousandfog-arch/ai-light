@@ -65,19 +65,18 @@ fn aggregates_claude_sessions_by_project_severity() {
 }
 
 #[test]
-fn codex_sessions_in_same_project_get_separate_lights() {
+fn codex_sessions_in_same_project_share_one_prioritized_light() {
     let agg = StateAggregator::new();
     let cwd = PathBuf::from("/home/user/project");
 
-    agg.add_session("s1".to_string(), Tool::Codex, &cwd, Status::Working);
+    agg.add_session("s1".to_string(), Tool::Codex, &cwd, Status::Done);
     agg.add_session("s2".to_string(), Tool::Codex, &cwd, Status::Working);
 
     let lights = agg.get_lights();
-    assert_eq!(lights.len(), 2);
-    assert!(lights
-        .iter()
-        .all(|light| light.project_path == "/home/user/project"));
-    assert!(lights.iter().all(|light| light.sessions.len() == 1));
+    assert_eq!(lights.len(), 1);
+    assert_eq!(lights[0].project_path, "/home/user/project");
+    assert_eq!(lights[0].sessions.len(), 2);
+    assert_eq!(lights[0].status, Status::Working);
 }
 
 #[test]
