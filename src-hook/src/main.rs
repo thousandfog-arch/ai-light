@@ -72,7 +72,11 @@ fn main() {
         event_type,
         session_id: extract_string(&payload, &["session_id", "sessionId"])
             .unwrap_or_else(|| "unknown".to_string()),
-        cwd: extract_string(&payload, &["cwd"]),
+        cwd: extract_string(&payload, &["cwd"]).or_else(|| {
+            env::current_dir()
+                .ok()
+                .map(|path| path.to_string_lossy().to_string())
+        }),
         tool_call: extract_string(&payload, &["tool_name", "tool", "toolName"]),
         tool_source: source,
     };

@@ -204,7 +204,15 @@ fn apply_hook_event(aggregator: &StateAggregator, event: HookEvent) {
             }
 
             if let Some(status) = HookEvent::event_type_to_status(&event.event_type) {
-                aggregator.update_session_status(&event.session_id, status);
+                if aggregator.session_status(&event.session_id).is_none()
+                    && event.session_id != "unknown"
+                {
+                    if let Some(cwd) = event.cwd.as_deref().map(PathBuf::from) {
+                        aggregator.add_session(event.session_id.clone(), tool, &cwd, status);
+                    }
+                } else {
+                    aggregator.update_session_status(&event.session_id, status);
+                }
             }
 
             if let Some(tool_call) = event.tool_call {
