@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Light Appearance</title>
+    <link rel="stylesheet" href="appearance.css" />
+  </head>
+  <body>
+    <main class="appearance-card">
+      <header>
+        <h1>外观设置</h1>
+        <p>修改会实时应用到所有红绿灯。</p>
+      </header>
+
+      <label class="field range-field">
+        <span>红绿灯大小</span>
+        <output id="light-width-value">66 px</output>
+        <input id="light-width" type="range" min="44" max="100" step="1" />
+      </label>
+
+      <label class="field range-field">
+        <span>项目名字号</span>
+        <output id="font-size-value">12 px</output>
+        <input id="font-size" type="range" min="8" max="24" step="1" />
+      </label>
+
+      <label class="field">
+        <span>项目名字体</span>
+        <input id="font-family" list="font-options" maxlength="80" />
+        <datalist id="font-options">
+          <option value="Segoe UI"></option>
+          <option value="Microsoft YaHei UI"></option>
+          <option value="Microsoft YaHei"></option>
+          <option value="Arial"></option>
+          <option value="Consolas"></option>
+        </datalist>
+      </label>
+
+      <div class="field color-field">
+        <span>项目名颜色</span>
+        <input id="font-color" type="color" />
+        <input id="font-color-text" type="text" maxlength="7" spellcheck="false" />
+      </div>
+
+      <label class="field">
+        <span>项目名字重</span>
+        <select id="font-weight">
+          <option value="400">Regular</option>
+          <option value="600">Semibold</option>
+          <option value="700">Bold</option>
+        </select>
+      </label>
+
+      <footer>
+        <span id="status" role="status"></span>
+        <button id="reset" type="button">恢复默认</button>
+      </footer>
+    </main>
+    <script src="appearance.js"></script>
+  </body>
+</html>

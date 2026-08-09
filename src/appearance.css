@@ -1,0 +1,126 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  background: #15181d;
+  color: #f3f4f6;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(150deg, #1b2027, #111318);
+}
+
+.appearance-card {
+  padding: 22px 24px 18px;
+}
+
+header {
+  margin-bottom: 20px;
+}
+
+h1 {
+  margin: 0 0 5px;
+  font-size: 20px;
+}
+
+p {
+  margin: 0;
+  color: #949ba7;
+  font-size: 12px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  align-items: center;
+  min-height: 44px;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.range-field {
+  grid-template-columns: 112px 1fr 58px;
+}
+
+.range-field input {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.range-field output {
+  grid-column: 3;
+  color: #aeb6c3;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #4f9cf9;
+  cursor: pointer;
+}
+
+input[type="text"],
+input[list],
+select {
+  width: 100%;
+  height: 31px;
+  padding: 0 9px;
+  border: 1px solid #3a414c;
+  border-radius: 6px;
+  background: #20242b;
+  color: #f3f4f6;
+  outline: none;
+}
+
+input[type="text"]:focus,
+input[list]:focus,
+select:focus {
+  border-color: #559dec;
+}
+
+.color-field {
+  grid-template-columns: 112px 38px 1fr;
+}
+
+input[type="color"] {
+  width: 34px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid #3a414c;
+  border-radius: 6px;
+  background: #20242b;
+  cursor: pointer;
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  margin-top: 10px;
+}
+
+#status {
+  color: #8fbff5;
+  font-size: 12px;
+}
+
+button {
+  height: 31px;
+  padding: 0 13px;
+  border: 1px solid #454c57;
+  border-radius: 6px;
+  color: #e8ebef;
+  background: #282d35;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #333944;
+}

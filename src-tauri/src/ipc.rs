@@ -1,7 +1,7 @@
 use ai_light::aggregator::StateAggregator;
 use ai_light::config::{
     get_config_dir, get_config_path, get_lock_path, get_log_path, get_runtime_path,
-    load_app_config, load_runtime_config, save_app_config,
+    load_app_config, load_runtime_config, save_app_config, AppConfig,
 };
 use ai_light::hook_installer::{
     check_hooks_installed, check_opencode_integration, check_reasonix_integration,
@@ -14,7 +14,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, LogicalSize, Manager, Size, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, State, WebviewWindow};
 
 use crate::light_windows::LightWindowManager;
 
@@ -40,10 +40,29 @@ pub struct Diagnostics {
 #[serde(rename_all = "camelCase")]
 pub struct AppConfigView {
     pub config_path: String,
-    pub light_size: String,
     pub http_bind: String,
     pub http_port: Option<u16>,
     pub runtime_port: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceView {
+    pub light_width: u16,
+    pub label_font_family: String,
+    pub label_font_size: u16,
+    pub label_color: String,
+    pub label_font_weight: u16,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceUpdate {
+    pub light_width: u16,
+    pub label_font_family: String,
+    pub label_font_size: u16,
+    pub label_color: String,
+    pub label_font_weight: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,11 +127,53 @@ pub fn get_app_config() -> AppConfigView {
     let config = load_app_config();
     AppConfigView {
         config_path: get_config_path().to_string_lossy().to_string(),
-        light_size: config.light_size,
         http_bind: config.http_bind,
         http_port: config.http_port,
         runtime_port: load_runtime_config().map(|runtime| runtime.http_port),
     }
+}
+
+#[tauri::command]
+pub fn get_appearance() -> AppearanceView {
+    appearance_view(&load_app_config())
+}
+
+#[tauri::command]
+pub fn save_appearance(app: AppHandle, update: AppearanceUpdate) -> Result<AppearanceView, String> {
+    if !(44..=100).contains(&update.light_width) {
+        return Err("Light size must be between 44 and 100.".to_string());
+    }
+    if !(8..=24).contains(&update.label_font_size) {
+        return Err("Label font size must be between 8 and 24.".to_string());
+    }
+    if !matches!(update.label_font_weight, 400 | 600 | 700) {
+        return Err("Unsupported label font weight.".to_string());
+    }
+    if !valid_hex_color(&update.label_color) {
+        return Err("Label color must use #RRGGBB format.".to_string());
+    }
+    let font_family = update.label_font_family.trim();
+    if font_family.is_empty()
+        || font_family.len() > 80
+        || font_family
+            .chars()
+            .any(|character| character.is_control() || matches!(character, ';' | '{' | '}'))
+    {
+        return Err("Unsupported label font family.".to_string());
+    }
+
+    let mut config = load_app_config();
+    config.light_width = update.light_width;
+    config.label_font_family = font_family.to_string();
+    config.label_font_size = update.label_font_size;
+    config.label_color = update.label_color.to_ascii_lowercase();
+    config.label_font_weight = update.label_font_weight;
+    save_app_config(&config).map_err(|error| error.to_string())?;
+
+    let appearance = appearance_view(&config);
+    app.emit("appearance-changed", appearance.clone())
+        .map_err(|error| error.to_string())?;
+    Ok(appearance)
 }
 
 #[tauri::command]
@@ -270,6 +331,22 @@ fn validate_http_bind(bind: &str) -> Result<(), String> {
     bind.parse::<IpAddr>().map(|_| ()).map_err(|_| {
         "HTTP bind must be an IP address, for example 127.0.0.1 or 0.0.0.0".to_string()
     })
+}
+
+fn appearance_view(config: &AppConfig) -> AppearanceView {
+    AppearanceView {
+        light_width: config.light_width,
+        label_font_family: config.label_font_family.clone(),
+        label_font_size: config.label_font_size,
+        label_color: config.label_color.clone(),
+        label_font_weight: config.label_font_weight,
+    }
+}
+
+fn valid_hex_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color[1..].chars().all(|character| character.is_ascii_hexdigit())
 }
 
 fn validate_http_port(port: Option<u16>) -> Result<(), String> {

@@ -72,7 +72,8 @@ impl LightWindowManager {
         self: &Arc<Self>,
         app: &AppHandle,
         lights: &[LightState],
-        light_size: &str,
+        light_width: u16,
+        label_font_size: u16,
         fallback_x: i32,
         fallback_y: i32,
     ) -> Result<(), String> {
@@ -102,7 +103,7 @@ impl LightWindowManager {
             }
         }
 
-        let (logical_width, logical_height) = light_dimensions(light_size);
+        let (logical_width, logical_height) = light_dimensions(light_width, label_font_size);
         for (index, light) in lights.iter().enumerate() {
             let existing = self
                 .state
@@ -460,13 +461,10 @@ impl LightWindowManager {
     }
 }
 
-pub fn light_dimensions(size: &str) -> (f64, f64) {
-    let width = match size {
-        "small" => 54.0,
-        "large" => 80.0,
-        _ => 66.0,
-    };
-    (width, (width * 1630.0 / 752.0).ceil())
+pub fn light_dimensions(width: u16, label_font_size: u16) -> (f64, f64) {
+    let width = f64::from(width.clamp(44, 100));
+    let label_height = f64::from(label_font_size.clamp(8, 24)) * 1.55 + 4.0;
+    (width, (width * 1.78 + label_height).ceil())
 }
 
 fn unique_window_label(entries: &HashMap<String, LightWindowEntry>, project_id: &str) -> String {

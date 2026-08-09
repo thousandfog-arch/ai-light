@@ -8,7 +8,13 @@ const isLightWindow = currentWindowLabel.startsWith("light-");
 
 let lights = [];
 let currentProjectId = null;
-let lightSize = "medium";
+let appearance = {
+  lightWidth: 66,
+  labelFontFamily: "Segoe UI",
+  labelFontSize: 12,
+  labelColor: "#f5f5f5",
+  labelFontWeight: 700,
+};
 const lightElements = new Map();
 let lastWindowSize = { width: 0, height: 0 };
 let resizeFrame = 0;
@@ -19,7 +25,6 @@ const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
 const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
-const LIGHT_WIDTHS = { small: 54, medium: 66, large: 80 };
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
@@ -31,8 +36,8 @@ tauriEvent?.listen("state-changed", (event) => {
   render();
 });
 
-tauriEvent?.listen("light-size-changed", (event) => {
-  applyLightSize(event.payload);
+tauriEvent?.listen("appearance-changed", (event) => {
+  applyAppearance(event.payload);
 });
 
 document.addEventListener("click", (event) => {
@@ -408,14 +413,24 @@ function measureVisibleContent() {
   return { width, height, count: children.length };
 }
 
-function applyLightSize(size) {
-  if (!Object.hasOwn(LIGHT_WIDTHS, size)) {
-    size = "medium";
-  }
-  lightSize = size;
+function applyAppearance(nextAppearance) {
+  appearance = { ...appearance, ...(nextAppearance || {}) };
   document.documentElement.style.setProperty(
     "--light-width",
-    `${LIGHT_WIDTHS[lightSize]}px`,
+    `${appearance.lightWidth}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--label-font-size",
+    `${appearance.labelFontSize}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--label-font-family",
+    appearance.labelFontFamily,
+  );
+  document.documentElement.style.setProperty("--label-color", appearance.labelColor);
+  document.documentElement.style.setProperty(
+    "--label-font-weight",
+    appearance.labelFontWeight,
   );
   lastWindowSize = { width: 0, height: 0 };
   scheduleWindowResize();
@@ -526,8 +541,7 @@ async function initialize() {
   if (isLightWindow) {
     currentProjectId = await safeInvoke("current_window_project");
   }
-  const config = await safeInvoke("get_app_config");
-  applyLightSize(config?.lightSize || "medium");
+  applyAppearance(await safeInvoke("get_appearance"));
   await refreshLights();
   scheduleWindowResize();
   window.setInterval(refreshLights, 1000);

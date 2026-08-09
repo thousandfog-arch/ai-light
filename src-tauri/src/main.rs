@@ -41,6 +41,8 @@ fn main() {
             ipc::open_session_logs,
             ipc::open_app_log,
             ipc::get_app_config,
+            ipc::get_appearance,
+            ipc::save_appearance,
             ipc::save_app_config_command,
             ipc::copy_path,
             ipc::pause_monitoring,
@@ -104,10 +106,19 @@ fn main() {
                 });
             }
 
+            if let Some(appearance_window) = app.get_webview_window("appearance") {
+                let window_to_hide = appearance_window.clone();
+                appearance_window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window_to_hide.hide();
+                    }
+                });
+            }
+
             let emit_aggregator = Arc::clone(&aggregator);
             let sync_manager = Arc::clone(&light_window_manager);
             let sync_app = app.handle().clone();
-            let sync_size = app_config.light_size.clone();
             let sync_x = app_config.window_x;
             let sync_y = app_config.window_y;
 
@@ -115,10 +126,17 @@ fn main() {
                 let lights = emit_aggregator.get_lights();
                 let manager = Arc::clone(&sync_manager);
                 let app_handle = sync_app.clone();
-                let size = sync_size.clone();
                 let scheduler = sync_app.clone();
                 let _ = scheduler.run_on_main_thread(move || {
-                    let _ = manager.sync(&app_handle, &lights, &size, sync_x, sync_y);
+                    let appearance = load_app_config();
+                    let _ = manager.sync(
+                        &app_handle,
+                        &lights,
+                        appearance.light_width,
+                        appearance.label_font_size,
+                        sync_x,
+                        sync_y,
+                    );
                 });
             });
 
@@ -130,7 +148,8 @@ fn main() {
                 .sync(
                     app.handle(),
                     &aggregator.get_lights(),
-                    &app_config.light_size,
+                    app_config.light_width,
+                    app_config.label_font_size,
                     app_config.window_x,
                     app_config.window_y,
                 )
