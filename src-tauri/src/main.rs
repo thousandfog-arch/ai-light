@@ -8,6 +8,8 @@ use std::sync::Arc;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 mod ipc;
+mod tray;
+mod window_state;
 
 fn main() {
     let app_lock = match AppLock::acquire() {
@@ -41,6 +43,7 @@ fn main() {
             ipc::pause_monitoring,
             ipc::resume_monitoring,
             ipc::open_settings,
+            ipc::hide_main_window,
             ipc::resize_main_window,
             ipc::set_main_window_always_on_top,
             ipc::check_hooks,
@@ -64,6 +67,23 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window should exist");
+
+            tray::create_tray(app)?;
+            window_state::restore_main_window_position(&window, &app_config)
+                .map_err(std::io::Error::other)?;
+
+            let main_window = window.clone();
+            window.on_window_event(move |event| match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = main_window.hide();
+                }
+                WindowEvent::Moved(position) => {
+                    let _ = window_state::save_position(position.x, position.y);
+                }
+                _ => {}
+            });
+
             if let Some(settings_window) = app.get_webview_window("settings") {
                 let window_to_hide = settings_window.clone();
                 settings_window.on_window_event(move |event| {

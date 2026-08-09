@@ -365,10 +365,16 @@ fn is_rollout_file(path: &Path) -> bool {
 }
 
 fn codex_sessions_dir() -> PathBuf {
-    home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".codex")
-        .join("sessions")
+    let codex_home = std::env::var_os("CODEX_HOME")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".codex")
+        });
+
+    codex_home.join("sessions")
 }
 
 fn home_dir() -> Option<PathBuf> {

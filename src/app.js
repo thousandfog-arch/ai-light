@@ -253,7 +253,10 @@ function tooltipFor(lightState) {
 function showMenu(x, y, items) {
   menu.replaceChildren();
 
-  for (const [label, action, className] of [["Close", hideMenu, "menu-close"], ...items]) {
+  for (const [label, action, className] of [
+    ["Close", () => safeInvoke("hide_main_window"), "menu-close"],
+    ...items,
+  ]) {
     const item = document.createElement("button");
     item.type = "button";
     item.textContent = label;
