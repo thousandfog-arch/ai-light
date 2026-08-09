@@ -11,7 +11,7 @@
   --label-color: #f5f5f5;
   --label-font-weight: 700;
   --label-height: max(calc(var(--label-font-size) * 1.45), 18px);
-  --panel-height: calc(var(--light-width) * 1.78);
+  --panel-height: calc(var(--light-width) * 2.08);
   color-scheme: dark;
   background: transparent;
 }
@@ -42,9 +42,11 @@ body {
 }
 
 .traffic-light {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: var(--light-width);
-  height: calc(var(--label-height) + 4px + var(--panel-height));
+  min-height: calc(var(--label-height) + 4px + var(--panel-height));
   flex: 0 0 auto;
   cursor: default;
 }
@@ -54,11 +56,10 @@ body {
 }
 
 .project-label {
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
   width: 100%;
   height: var(--label-height);
+  flex: 0 0 auto;
   overflow: hidden;
   color: var(--label-color);
   background: transparent;
@@ -69,7 +70,16 @@ body {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.traffic-light.label-expanded .project-label {
+  height: auto;
+  min-height: var(--label-height);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .traffic-light.standby .project-label {
@@ -77,11 +87,10 @@ body {
 }
 
 .panel-art {
-  position: absolute;
-  top: calc(var(--label-height) + 4px);
-  left: 0;
+  position: relative;
   width: 100%;
   height: var(--panel-height);
+  flex: 0 0 auto;
   border: 0;
   border-radius: calc(var(--light-width) * 0.13);
   background: linear-gradient(155deg, #262b32 0%, #171a1f 58%, #111419 100%);
@@ -93,8 +102,8 @@ body {
 .status-lamp {
   position: absolute;
   left: 50%;
-  width: calc(var(--light-width) * 0.48);
-  height: calc(var(--light-width) * 0.48);
+  width: calc(var(--light-width) * 0.5);
+  height: calc(var(--light-width) * 0.5);
   border-radius: 50%;
   background: #0c1014;
   box-shadow:
@@ -112,9 +121,19 @@ body {
   inset: 0;
 }
 
-.status-lamp::before {
-  background: radial-gradient(circle at 44% 36%, #242a2d 0%, #151a1e 52%, #090c0f 100%);
-  opacity: 0.8;
+.status-lamp-red::before {
+  background: radial-gradient(circle at 43% 35%, #472426 0%, #35191c 48%, #190d10 100%);
+  opacity: 0.68;
+}
+
+.status-lamp-yellow::before {
+  background: radial-gradient(circle at 43% 35%, #4b4425 0%, #332f19 48%, #19170d 100%);
+  opacity: 0.62;
+}
+
+.status-lamp-green::before {
+  background: radial-gradient(circle at 43% 35%, #17412a 0%, #102f20 48%, #09170f 100%);
+  opacity: 0.68;
 }
 
 .status-lamp::after {
@@ -124,15 +143,15 @@ body {
 }
 
 .status-lamp-red {
-  top: calc(var(--label-height) + 4px + var(--panel-height) * 0.23);
+  top: 20%;
 }
 
 .status-lamp-yellow {
-  top: calc(var(--label-height) + 4px + var(--panel-height) * 0.5);
+  top: 50%;
 }
 
 .status-lamp-green {
-  top: calc(var(--label-height) + 4px + var(--panel-height) * 0.77);
+  top: 80%;
 }
 
 .traffic-light[data-status="Error"] .status-lamp-red::before {
@@ -141,8 +160,8 @@ body {
 }
 
 .traffic-light[data-status="Error"] .status-lamp-red::after {
-  background: radial-gradient(circle, rgba(255, 42, 32, 0.5), transparent 70%);
-  opacity: 0.62;
+  background: radial-gradient(circle, rgba(255, 42, 32, 0.42), transparent 72%);
+  opacity: 0.5;
   animation: red-alert 1.05s steps(2, end) infinite;
 }
 
@@ -153,8 +172,8 @@ body {
 }
 
 .traffic-light[data-status="Working"] .status-lamp-yellow::after {
-  background: radial-gradient(circle, rgba(255, 195, 39, 0.48), transparent 72%);
-  opacity: 0.58;
+  background: radial-gradient(circle, rgba(255, 195, 39, 0.4), transparent 74%);
+  opacity: 0.5;
 }
 
 .traffic-light[data-status="Done"] .status-lamp-green::before {
@@ -164,8 +183,8 @@ body {
 }
 
 .traffic-light[data-status="Done"] .status-lamp-green::after {
-  background: radial-gradient(circle, rgba(46, 239, 93, 0.46), transparent 72%);
-  opacity: 0.55;
+  background: radial-gradient(circle, rgba(46, 239, 93, 0.4), transparent 74%);
+  opacity: 0.5;
 }
 
 @keyframes red-alert {

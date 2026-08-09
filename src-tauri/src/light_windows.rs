@@ -464,7 +464,7 @@ impl LightWindowManager {
 pub fn light_dimensions(width: u16, label_font_size: u16) -> (f64, f64) {
     let width = f64::from(width.clamp(44, 100));
     let label_height = f64::from(label_font_size.clamp(8, 24)) * 1.55 + 4.0;
-    (width, (width * 1.78 + label_height).ceil())
+    (width, (width * 2.08 + label_height).ceil())
 }
 
 fn unique_window_label(entries: &HashMap<String, LightWindowEntry>, project_id: &str) -> String {

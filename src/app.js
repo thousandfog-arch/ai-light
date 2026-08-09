@@ -175,6 +175,19 @@ function createProjectLight(lightState) {
     openCodex(root.dataset.codexSessionId || null);
   });
 
+  const projectLabel = root.querySelector(".project-label");
+  projectLabel?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleProjectLabel(root, projectLabel);
+  });
+  projectLabel?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleProjectLabel(root, projectLabel);
+  });
+
   root.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     const projectId = root.dataset.projectId;
@@ -224,9 +237,26 @@ function createLightElement({ label, status, title, standby = false }) {
   const projectLabel = document.createElement("div");
   projectLabel.className = "project-label";
   projectLabel.textContent = standby ? "" : label || "unknown";
+  if (!standby) {
+    projectLabel.role = "button";
+    projectLabel.tabIndex = 0;
+    projectLabel.setAttribute("aria-expanded", "false");
+    projectLabel.title = "Click to show the full project name";
+  }
 
-  root.append(panel, projectLabel, redLamp, yellowLamp, greenLamp);
+  panel.append(redLamp, yellowLamp, greenLamp);
+  root.append(projectLabel, panel);
   return root;
+}
+
+function toggleProjectLabel(root, projectLabel) {
+  const expanded = root.classList.toggle("label-expanded");
+  projectLabel.setAttribute("aria-expanded", String(expanded));
+  projectLabel.title = expanded
+    ? "Click to collapse the project name"
+    : "Click to show the full project name";
+  lastWindowSize = { width: 0, height: 0 };
+  scheduleWindowResize();
 }
 
 function updateProjectLight(root, lightState) {
@@ -441,7 +471,7 @@ function shouldStartDrag(event) {
     return false;
   }
 
-  if (event.target.closest(".menu, button")) {
+  if (event.target.closest(".menu, button, .project-label")) {
     return false;
   }
 
