@@ -28,14 +28,14 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Run Rust tests
-        run: cargo test --workspace
-
       - name: Build Claude Code hook helper
         run: cargo build -p ai-light-hook --release
 
       - name: Build Tauri Windows app and installers
         run: npx --yes @tauri-apps/cli@2.11.2 build
+
+      - name: Run Rust tests
+        run: cargo test --workspace
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
