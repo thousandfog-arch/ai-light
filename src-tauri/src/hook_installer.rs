@@ -325,6 +325,9 @@ pub fn install_reasonix_integration() -> Result<(), Box<dyn std::error::Error>> 
     };
 
     let hook_cmd = hook_path.to_string_lossy().to_string();
+    // Build the command strings before entering `json!`. Method calls on array
+    // expressions are not accepted by every serde_json macro version.
+    let reasonix_command = |event: &str| format!("{hook_cmd} --source reasonix {event}");
     let mut config = existing;
     if !config.is_object() {
         config = json!({});
@@ -334,49 +337,49 @@ pub fn install_reasonix_integration() -> Result<(), Box<dyn std::error::Error>> 
         "SessionStart": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "session-start"].join(" ")
+                "command": reasonix_command("session-start")
             }
         ],
         "PreToolUse": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "pre-tool-use"].join(" ")
+                "command": reasonix_command("pre-tool-use")
             }
         ],
         "PostToolUse": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "post-tool-use"].join(" ")
+                "command": reasonix_command("post-tool-use")
             }
         ],
         "UserPromptSubmit": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "prompt-submit"].join(" ")
+                "command": reasonix_command("prompt-submit")
             }
         ],
         "Stop": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "stop"].join(" ")
+                "command": reasonix_command("stop")
             }
         ],
         "TurnStart": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "pre-tool-use"].join(" ")
+                "command": reasonix_command("pre-tool-use")
             }
         ],
         "TurnEnd": [
             {
                 "match": "",
-                "command": [hook_cmd.clone(), "--source", "reasonix", "stop"].join(" ")
+                "command": reasonix_command("stop")
             }
         ],
         "SessionEnd": [
             {
                 "match": "",
-                "command": [hook_cmd, "--source", "reasonix", "session-end"].join(" ")
+                "command": reasonix_command("session-end")
             }
         ]
     });
