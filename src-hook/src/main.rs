@@ -17,6 +17,7 @@ struct HookEvent {
     cwd: Option<String>,
     tool_call: Option<String>,
     tool_source: String,
+    origin: String,
 }
 
 fn main() {
@@ -79,6 +80,7 @@ fn main() {
         }),
         tool_call: extract_string(&payload, &["tool_name", "tool", "toolName"]),
         tool_source: source,
+        origin: detect_origin(),
     };
 
     match post_event(&target_url, &event) {
@@ -90,6 +92,19 @@ fn main() {
             "failed: event={} session={} target={} source={} error={}",
             event.event_type, event.session_id, target_url, target_source, error
         )),
+    }
+}
+
+fn detect_origin() -> String {
+    if env::var_os("VSCODE_PID").is_some()
+        || env::var_os("VSCODE_IPC_HOOK_CLI").is_some()
+        || env::var("TERM_PROGRAM")
+            .map(|value| value.eq_ignore_ascii_case("vscode"))
+            .unwrap_or(false)
+    {
+        "vscode".to_string()
+    } else {
+        "terminal".to_string()
     }
 }
 
