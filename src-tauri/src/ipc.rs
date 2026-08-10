@@ -158,6 +158,10 @@ fn focus_recorded_host(
     terminal_tab_index: Option<usize>,
     terminal_tab_runtime_id: &[i32],
 ) -> bool {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
     if host_window <= 0 || (origin != "terminal" && origin != "vscode") {
         return false;
     }
@@ -213,6 +217,7 @@ if (-not $selected) {{ '0'; exit }}
 "#);
     std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .ok()
         .filter(|output| output.status.success())

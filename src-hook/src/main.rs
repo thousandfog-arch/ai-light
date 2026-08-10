@@ -6,6 +6,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Debug, Deserialize)]
 struct RuntimeConfig {
     http_port: u16,
@@ -150,6 +156,7 @@ if ($origin -eq 'terminal') {
 "#;
         if let Ok(output) = Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
         {
             if output.status.success() {
