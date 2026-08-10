@@ -8,6 +8,8 @@ const controls = {
   fontFamily: document.getElementById("font-family"),
   fontColor: document.getElementById("font-color"),
   fontColorText: document.getElementById("font-color-text"),
+  panelColor: document.getElementById("panel-color"),
+  panelColorText: document.getElementById("panel-color-text"),
   fontWeight: document.getElementById("font-weight"),
   status: document.getElementById("status"),
   reset: document.getElementById("reset"),
@@ -22,6 +24,7 @@ function readForm() {
     labelFontSize: Number(controls.fontSize.value),
     labelColor: controls.fontColorText.value.trim(),
     labelFontWeight: Number(controls.fontWeight.value),
+    panelColor: controls.panelColorText.value.trim(),
   };
 }
 
@@ -32,6 +35,8 @@ function writeForm(appearance) {
   controls.fontColor.value = appearance.labelColor;
   controls.fontColorText.value = appearance.labelColor;
   controls.fontWeight.value = String(appearance.labelFontWeight);
+  controls.panelColor.value = appearance.panelColor;
+  controls.panelColorText.value = appearance.panelColor;
   updateOutputs();
 }
 
@@ -72,6 +77,16 @@ controls.fontColorText.addEventListener("change", () => {
   }
   scheduleSave();
 });
+controls.panelColor.addEventListener("input", () => {
+  controls.panelColorText.value = controls.panelColor.value;
+  scheduleSave();
+});
+controls.panelColorText.addEventListener("change", () => {
+  if (/^#[0-9a-f]{6}$/i.test(controls.panelColorText.value)) {
+    controls.panelColor.value = controls.panelColorText.value;
+  }
+  scheduleSave();
+});
 controls.reset.addEventListener("click", () => {
   writeForm({
     lightWidth: 66,
@@ -79,6 +94,7 @@ controls.reset.addEventListener("click", () => {
     labelFontSize: 12,
     labelColor: "#f5f5f5",
     labelFontWeight: 700,
+    panelColor: "#171a1f",
   });
   save();
 });

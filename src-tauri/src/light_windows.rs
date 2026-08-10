@@ -237,6 +237,32 @@ impl LightWindowManager {
             .unwrap_or(false)
     }
 
+    pub fn prepare_bottom_anchored_resize(
+        &self,
+        label: &str,
+        width: i32,
+        height: i32,
+    ) -> Option<(i32, i32)> {
+        let position = {
+            let mut state = self.state.lock().ok()?;
+            let (project_id, x, y) = {
+                let entry = state.entries.get_mut(label)?;
+                let bottom = entry.y + entry.height;
+                entry.width = width;
+                entry.height = height;
+                entry.y = bottom - height;
+                (entry.project_id.clone(), entry.x, entry.y)
+            };
+            state.pending_moves.insert(label.to_string());
+            state
+                .saved_positions
+                .insert(project_id, SavedPosition { x, y });
+            (x, y)
+        };
+        self.save_positions();
+        Some(position)
+    }
+
     pub fn hide_all(&self, app: &AppHandle) {
         if let Ok(mut state) = self.state.lock() {
             state.user_visible = false;
@@ -426,12 +452,14 @@ impl LightWindowManager {
             else {
                 return;
             };
+            let anchor_bottom = first.y + first.height;
             let mut next_x = first.x;
             for group_label in group_labels {
                 let target = if let Some(entry) = state.entries.get_mut(&group_label) {
-                    let moved = entry.x != next_x || entry.y != first.y;
+                    let aligned_y = anchor_bottom - entry.height;
+                    let moved = entry.x != next_x || entry.y != aligned_y;
                     entry.x = next_x;
-                    entry.y = first.y;
+                    entry.y = aligned_y;
                     next_x += entry.width + SNAP_GAP;
                     moved.then_some((entry.x, entry.y))
                 } else {

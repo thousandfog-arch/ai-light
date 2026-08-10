@@ -14,7 +14,10 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, Size, State, WebviewWindow};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Position, Size, State,
+    WebviewWindow,
+};
 
 use crate::light_windows::LightWindowManager;
 
@@ -53,6 +56,7 @@ pub struct AppearanceView {
     pub label_font_size: u16,
     pub label_color: String,
     pub label_font_weight: u16,
+    pub panel_color: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +67,7 @@ pub struct AppearanceUpdate {
     pub label_font_size: u16,
     pub label_color: String,
     pub label_font_weight: u16,
+    pub panel_color: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +157,9 @@ pub fn save_appearance(app: AppHandle, update: AppearanceUpdate) -> Result<Appea
     if !valid_hex_color(&update.label_color) {
         return Err("Label color must use #RRGGBB format.".to_string());
     }
+    if !valid_hex_color(&update.panel_color) {
+        return Err("Panel color must use #RRGGBB format.".to_string());
+    }
     let font_family = update.label_font_family.trim();
     if font_family.is_empty()
         || font_family.len() > 80
@@ -168,6 +176,7 @@ pub fn save_appearance(app: AppHandle, update: AppearanceUpdate) -> Result<Appea
     config.label_font_size = update.label_font_size;
     config.label_color = update.label_color.to_ascii_lowercase();
     config.label_font_weight = update.label_font_weight;
+    config.panel_color = update.panel_color.to_ascii_lowercase();
     save_app_config(&config).map_err(|error| error.to_string())?;
 
     let appearance = appearance_view(&config);
@@ -275,11 +284,27 @@ pub fn is_current_light_attached(
 #[tauri::command]
 pub fn resize_current_window(
     window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
     width: f64,
     height: f64,
+    keep_bottom: Option<bool>,
 ) -> Result<(), String> {
     let width = width.clamp(48.0, 360.0);
     let height = height.clamp(96.0, 600.0);
+    if keep_bottom.unwrap_or(false) {
+        let scale_factor = window.scale_factor().map_err(|error| error.to_string())?;
+        let physical_width = (width * scale_factor).round() as i32;
+        let physical_height = (height * scale_factor).round() as i32;
+        if let Some((x, y)) = manager.prepare_bottom_anchored_resize(
+            window.label(),
+            physical_width,
+            physical_height,
+        ) {
+            window
+                .set_position(Position::Physical(PhysicalPosition::new(x, y)))
+                .map_err(|error| error.to_string())?;
+        }
+    }
     window
         .set_size(Size::Logical(LogicalSize::new(width, height)))
         .map_err(|error| error.to_string())?;
@@ -340,6 +365,7 @@ fn appearance_view(config: &AppConfig) -> AppearanceView {
         label_font_size: config.label_font_size,
         label_color: config.label_color.clone(),
         label_font_weight: config.label_font_weight,
+        panel_color: config.panel_color.clone(),
     }
 }
 

@@ -14,10 +14,12 @@ let appearance = {
   labelFontSize: 12,
   labelColor: "#f5f5f5",
   labelFontWeight: 700,
+  panelColor: "#171a1f",
 };
 const lightElements = new Map();
 let lastWindowSize = { width: 0, height: 0 };
 let resizeFrame = 0;
+let keepBottomOnNextResize = false;
 let isAlwaysOnTop = false;
 const WINDOW_GUTTER_X = 0;
 const WINDOW_GUTTER_Y = 0;
@@ -170,8 +172,25 @@ function createProjectLight(lightState) {
   root.dataset.projectId = lightState.project_id;
   root.dataset.projectPath = lightState.project_path || lightState.project_id;
 
+  let clickTimer = 0;
   root.addEventListener("click", (event) => {
     if (consumeSuppressedClick(event)) return;
+    if (event.detail > 1) return;
+    window.clearTimeout(clickTimer);
+    clickTimer = window.setTimeout(() => {
+      openCodex(root.dataset.codexSessionId || null);
+    }, 240);
+  });
+  root.addEventListener("dblclick", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.clearTimeout(clickTimer);
+    const attached = await safeInvoke("is_current_light_attached");
+    if (attached) {
+      const detached = await safeInvoke("detach_current_light");
+      root.classList.toggle("is-attached", !detached);
+      return;
+    }
     openCodex(root.dataset.codexSessionId || null);
   });
 
@@ -186,6 +205,10 @@ function createProjectLight(lightState) {
     event.preventDefault();
     event.stopPropagation();
     toggleProjectLabel(root, projectLabel);
+  });
+  projectLabel?.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
   });
 
   root.addEventListener("contextmenu", (event) => {
@@ -255,6 +278,7 @@ function toggleProjectLabel(root, projectLabel) {
   projectLabel.title = expanded
     ? "Click to collapse the project name"
     : "Click to show the full project name";
+  keepBottomOnNextResize = true;
   lastWindowSize = { width: 0, height: 0 };
   scheduleWindowResize();
 }
@@ -409,7 +433,9 @@ async function resizeWindowToContent() {
   }
 
   try {
-    await tauriCore?.invoke("resize_current_window", { width, height });
+    const keepBottom = keepBottomOnNextResize;
+    keepBottomOnNextResize = false;
+    await tauriCore?.invoke("resize_current_window", { width, height, keepBottom });
     lastWindowSize = { width, height };
     return;
   } catch (error) {
@@ -462,12 +488,13 @@ function applyAppearance(nextAppearance) {
     "--label-font-weight",
     appearance.labelFontWeight,
   );
+  document.documentElement.style.setProperty("--panel-color", appearance.panelColor);
   lastWindowSize = { width: 0, height: 0 };
   scheduleWindowResize();
 }
 
 function shouldStartDrag(event) {
-  if (event.button !== 0 || !menu.hidden) {
+  if (event.button !== 0 || event.detail > 1 || !menu.hidden) {
     return false;
   }
 

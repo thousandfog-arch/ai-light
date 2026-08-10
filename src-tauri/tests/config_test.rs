@@ -20,6 +20,7 @@ fn app_config_defaults_match_mvp_startup_state() {
 
     assert_eq!(config.window_x, 100);
     assert_eq!(config.window_y, 100);
+    assert_eq!(config.panel_color, "#171a1f");
     assert!(!config.monitoring_paused);
     assert!(!config.hooks_installed);
     assert_eq!(config.http_bind, "127.0.0.1");
@@ -33,6 +34,7 @@ fn app_config_deserializes_old_documents_with_defaults() {
 
     assert_eq!(parsed.window_x, 250);
     assert_eq!(parsed.window_y, 260);
+    assert_eq!(parsed.panel_color, "#171a1f");
     assert_eq!(parsed.http_bind, "127.0.0.1");
     assert_eq!(parsed.http_port, None);
 }

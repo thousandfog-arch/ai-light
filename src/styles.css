@@ -10,6 +10,7 @@
   --label-font-size: 12px;
   --label-color: #f5f5f5;
   --label-font-weight: 700;
+  --panel-color: #171a1f;
   --label-height: max(calc(var(--label-font-size) * 1.45), 18px);
   --panel-height: calc(var(--light-width) * 2.08);
   color-scheme: dark;
@@ -93,7 +94,9 @@ body {
   flex: 0 0 auto;
   border: 0;
   border-radius: calc(var(--light-width) * 0.13);
-  background: linear-gradient(155deg, #262b32 0%, #171a1f 58%, #111419 100%);
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.07) 0%, transparent 58%, rgba(0, 0, 0, 0.28) 100%),
+    var(--panel-color);
   box-shadow:
     0 5px 10px rgba(0, 0, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.025);
