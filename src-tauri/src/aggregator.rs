@@ -24,6 +24,17 @@ impl StateAggregator {
     }
 
     pub fn add_session(&self, session_id: String, tool: Tool, cwd: &Path, status: Status) {
+        self.add_session_with_origin(session_id, tool, cwd, status, "unknown");
+    }
+
+    pub fn add_session_with_origin(
+        &self,
+        session_id: String,
+        tool: Tool,
+        cwd: &Path,
+        status: Status,
+        origin: &str,
+    ) {
         {
             let (project_path, project_label) = identify_project(cwd);
             let light_id = light_id_for_session(&project_path, &session_id, tool);
@@ -42,6 +53,7 @@ impl StateAggregator {
             light.sessions.push(SessionRef {
                 session_id: session_id.clone(),
                 tool,
+                origin: origin.to_string(),
                 status,
                 started_at: Instant::now(),
             });
