@@ -59,9 +59,11 @@ document.addEventListener("keydown", (event) => {
 let isDragging = false;
 let dragStart = null;
 let dragPointerStart = null;
+let dragCandidate = null;
+let nativeDragInProgress = false;
 let suppressClicksUntil = 0;
 
-document.addEventListener("pointerdown", async (event) => {
+document.addEventListener("pointerdown", (event) => {
   if (!shouldStartDrag(event)) return;
 
   dragPointerStart = {
@@ -69,26 +71,44 @@ document.addEventListener("pointerdown", async (event) => {
     mouseY: event.screenY,
     startedAt: performance.now(),
   };
-
-  try {
-    await currentWindow?.startDragging?.();
-    return;
-  } catch {}
-
-  isDragging = true;
-  const pos = await currentWindow?.outerPosition();
-  dragStart = {
+  dragCandidate = {
     mouseX: event.screenX,
     mouseY: event.screenY,
-    winX: pos?.x ?? 0,
-    winY: pos?.y ?? 0,
+    pointerId: event.pointerId,
+    target: event.target,
   };
-  try {
-    event.target.setPointerCapture(event.pointerId);
-  } catch {}
 });
 
 document.addEventListener("pointermove", async (event) => {
+  if (dragCandidate && !isDragging && !nativeDragInProgress && currentWindow) {
+    const dx = event.screenX - dragCandidate.mouseX;
+    const dy = event.screenY - dragCandidate.mouseY;
+    if (!distanceExceedsDragThreshold(dx, dy)) return;
+
+    const candidate = dragCandidate;
+    dragCandidate = null;
+    suppressNextClick();
+    nativeDragInProgress = true;
+    try {
+      await currentWindow.startDragging?.();
+      return;
+    } catch {
+      const pos = await currentWindow.outerPosition();
+      isDragging = true;
+      dragStart = {
+        mouseX: candidate.mouseX,
+        mouseY: candidate.mouseY,
+        winX: pos?.x ?? 0,
+        winY: pos?.y ?? 0,
+      };
+      try {
+        candidate.target.setPointerCapture(candidate.pointerId);
+      } catch {}
+    } finally {
+      nativeDragInProgress = false;
+    }
+  }
+
   if (!isDragging || !dragStart || !currentWindow) return;
 
   const dx = event.screenX - dragStart.mouseX;
@@ -108,6 +128,13 @@ document.addEventListener("pointermove", async (event) => {
 });
 
 document.addEventListener("pointerup", () => {
+  dragCandidate = null;
+  isDragging = false;
+  dragStart = null;
+});
+
+document.addEventListener("pointercancel", () => {
+  dragCandidate = null;
   isDragging = false;
   dragStart = null;
 });
