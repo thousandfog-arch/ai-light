@@ -9,10 +9,35 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
+use std::ffi::c_void;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(target_os = "windows")]
+const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+
+#[cfg(target_os = "windows")]
+#[link(name = "user32")]
+extern "system" {
+    fn GetForegroundWindow() -> *mut c_void;
+    fn GetWindowThreadProcessId(window: *mut c_void, process_id: *mut u32) -> u32;
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+extern "system" {
+    fn OpenProcess(access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
+    fn QueryFullProcessImageNameW(
+        process: *mut c_void,
+        flags: u32,
+        file_name: *mut u16,
+        size: *mut u32,
+    ) -> i32;
+    fn CloseHandle(handle: *mut c_void) -> i32;
+}
 
 #[derive(Debug, Deserialize)]
 struct RuntimeConfig {
@@ -122,26 +147,75 @@ fn main() {
 fn detect_host_context() -> HostContext {
     #[cfg(target_os = "windows")]
     {
-        const SCRIPT: &str = r#"
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class AiLightHostNative {
-  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        if let Some((host_window, process_name)) = foreground_process() {
+            if process_name.starts_with("code") {
+                return HostContext {
+                    origin: "vscode".to_string(),
+                    host_window: Some(host_window),
+                    ..HostContext::default()
+                };
+            }
+
+            if process_name.contains("windowsterminal") {
+                return detect_terminal_context(host_window);
+            }
+        }
+    }
+
+    let origin = if env::var_os("VSCODE_PID").is_some()
+        || env::var_os("VSCODE_IPC_HOOK_CLI").is_some()
+        || env::var("TERM_PROGRAM").map(|value| value.eq_ignore_ascii_case("vscode")).unwrap_or(false)
+    { "vscode" } else { "terminal" };
+    HostContext { origin: origin.to_string(), ..HostContext::default() }
 }
-'@
-$hwnd = [AiLightHostNative]::GetForegroundWindow()
-$ownerPid = [uint32]0
-[AiLightHostNative]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid) | Out-Null
-$process = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
-$origin = if ($process.ProcessName -match '^Code') { 'vscode' } elseif ($process.ProcessName -match 'WindowsTerminal') { 'terminal' } else { 'unknown' }
+
+#[cfg(target_os = "windows")]
+fn foreground_process() -> Option<(i64, String)> {
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_null() {
+        return None;
+    }
+
+    let mut process_id = 0u32;
+    unsafe { GetWindowThreadProcessId(window, &mut process_id) };
+    if process_id == 0 {
+        return None;
+    }
+
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+    if process.is_null() {
+        return None;
+    }
+
+    let mut path = vec![0u16; 32_768];
+    let mut path_len = path.len() as u32;
+    let query_succeeded = unsafe {
+        QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut path_len) != 0
+    };
+    unsafe { CloseHandle(process) };
+    if !query_succeeded {
+        return None;
+    }
+
+    let executable = String::from_utf16_lossy(&path[..path_len as usize]);
+    let process_name = executable
+        .rsplit(['\\', '/'])
+        .next()
+        .unwrap_or(&executable)
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+    Some((window as isize as i64, process_name))
+}
+
+#[cfg(target_os = "windows")]
+fn detect_terminal_context(host_window: i64) -> HostContext {
+    let script = format!(r#"
+Add-Type -AssemblyName UIAutomationClient
+$hwnd = [IntPtr]::new({host_window})
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
 $tabIndex = ''
 $runtimeId = ''
-if ($origin -eq 'terminal') {
-  try {
-    Add-Type -AssemblyName UIAutomationClient
-    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+try {
     $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)
     $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
     for ($i = 0; $i -lt $tabs.Count; $i++) {
@@ -152,37 +226,37 @@ if ($origin -eq 'terminal') {
         break
       }
     }
-  } catch {}
-}
-'{0}|{1}|{2}|{3}' -f $origin, $hwnd.ToInt64(), $tabIndex, $runtimeId
-"#;
-        if let Ok(output) = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-        {
-            if output.status.success() {
-                let value = String::from_utf8_lossy(&output.stdout);
-                let mut parts = value.trim().splitn(4, '|');
-                let origin = parts.next().unwrap_or("unknown").to_string();
-                let host_window = parts.next().and_then(|value| value.parse().ok());
-                let terminal_tab_index = parts.next().and_then(|value| value.parse().ok());
-                let terminal_tab_runtime_id = parts
-                    .next()
-                    .unwrap_or_default()
-                    .split(',')
-                    .filter_map(|value| value.parse().ok())
-                    .collect();
-                return HostContext { origin, host_window, terminal_tab_index, terminal_tab_runtime_id };
-            }
+} catch {}
+'{0}|{1}' -f $tabIndex, $runtimeId
+"#);
+    if let Ok(output) = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout);
+            let mut parts = value.trim().splitn(2, '|');
+            let terminal_tab_index = parts.next().and_then(|value| value.parse().ok());
+            let terminal_tab_runtime_id = parts
+                .next()
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|value| value.parse().ok())
+                .collect();
+            return HostContext {
+                origin: "terminal".to_string(),
+                host_window: Some(host_window),
+                terminal_tab_index,
+                terminal_tab_runtime_id,
+            };
         }
     }
-
-    let origin = if env::var_os("VSCODE_PID").is_some()
-        || env::var_os("VSCODE_IPC_HOOK_CLI").is_some()
-        || env::var("TERM_PROGRAM").map(|value| value.eq_ignore_ascii_case("vscode")).unwrap_or(false)
-    { "vscode" } else { "terminal" };
-    HostContext { origin: origin.to_string(), ..HostContext::default() }
+    HostContext {
+        origin: "terminal".to_string(),
+        host_window: Some(host_window),
+        ..HostContext::default()
+    }
 }
 
 fn read_stdin_payload() -> Result<serde_json::Value, String> {
