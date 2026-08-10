@@ -29,15 +29,19 @@ const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
 const BODY_TRIPLE_CLICK_MS = 720;
 const BODY_TRIPLE_CLICK_DISTANCE = 10;
+const STATE_FALLBACK_REFRESH_MS = 30_000;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
 const standbyLight = createStandbyLight();
 container.appendChild(standbyLight);
+let fallbackRefreshTimer = 0;
 
 tauriEvent?.listen("state-changed", (event) => {
   lights = Array.isArray(event.payload) ? event.payload : [];
-  render();
+  if (!document.hidden) {
+    render();
+  }
 });
 
 tauriEvent?.listen("appearance-changed", (event) => {
@@ -78,6 +82,8 @@ document.addEventListener("pointerdown", (event) => {
     target: event.target,
   };
 });
+
+document.addEventListener("visibilitychange", updateActivityState);
 
 document.addEventListener("pointermove", async (event) => {
   if (dragCandidate && !isDragging && !nativeDragInProgress && currentWindow) {
@@ -240,7 +246,14 @@ function createProjectLight(lightState) {
       return;
     }
 
-    if (bodyClickStreak > 1) return;
+    if (bodyClickStreak > 1) {
+      clickTimer = window.setTimeout(() => {
+        bodyClickStreak = 0;
+        lastBodyClick = null;
+        openCodex(root.dataset.codexSessionId || null);
+      }, BODY_TRIPLE_CLICK_MS);
+      return;
+    }
     clickTimer = window.setTimeout(() => {
       bodyClickStreak = 0;
       lastBodyClick = null;
@@ -611,6 +624,22 @@ async function refreshLights() {
   }
 }
 
+function updateActivityState() {
+  const paused = document.hidden;
+  document.documentElement.classList.toggle("is-background-paused", paused);
+  window.clearInterval(fallbackRefreshTimer);
+  fallbackRefreshTimer = 0;
+
+  if (paused) return;
+
+  refreshLights();
+  fallbackRefreshTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      refreshLights();
+    }
+  }, STATE_FALLBACK_REFRESH_MS);
+}
+
 async function copyProjectPath(projectId) {
   const path = await safeInvoke("copy_path", { projectId });
   if (path && navigator.clipboard) {
@@ -655,7 +684,7 @@ async function initialize() {
   applyAppearance(await safeInvoke("get_appearance"));
   await refreshLights();
   scheduleWindowResize();
-  window.setInterval(refreshLights, 1000);
+  updateActivityState();
 }
 
 initialize();

@@ -23,36 +23,6 @@
         "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": true
-      },
-      {
-        "label": "appearance",
-        "title": "AI Light Appearance",
-        "url": "appearance.html",
-        "width": 420,
-        "height": 440,
-        "resizable": false,
-        "decorations": true,
-        "transparent": false,
-        "shadow": true,
-        "alwaysOnTop": false,
-        "skipTaskbar": false,
-        "visible": false,
-        "center": true
-      },
-      {
-        "label": "settings",
-        "title": "AI Light Settings",
-        "url": "settings.html",
-        "width": 480,
-        "height": 450,
-        "resizable": false,
-        "decorations": true,
-        "transparent": false,
-        "shadow": true,
-        "alwaysOnTop": false,
-        "skipTaskbar": false,
-        "visible": false,
-        "center": true
       }
     ],
     "security": {
