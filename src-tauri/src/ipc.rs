@@ -106,7 +106,11 @@ pub fn open_codex(session_id: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_claude_session(project_path: String) -> Result<(), String> {
+pub fn open_claude_session(
+    project_path: String,
+    session_id: Option<String>,
+    origin: Option<String>,
+) -> Result<(), String> {
     let project_path = project_path.trim();
     if project_path.is_empty() {
         return Err("No Claude project path is associated with this light.".to_string());
@@ -114,15 +118,20 @@ pub fn open_claude_session(project_path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let mut terminal = std::process::Command::new("wt.exe");
-        terminal.args(["-w", "0", "-d", project_path, "claude"]);
-        if terminal.spawn().is_ok() {
-            return Ok(());
+        if origin.as_deref() == Some("vscode") {
+            let mut code = std::process::Command::new("code.exe");
+            code.args(["--reuse-window", project_path]);
+            if code.spawn().is_ok() {
+                return Ok(());
+            }
         }
 
-        let mut code = std::process::Command::new("code.exe");
-        code.args(["--reuse-window", project_path]);
-        return code.spawn().map(|_| ()).map_err(|error| error.to_string());
+        let mut terminal = std::process::Command::new("wt.exe");
+        terminal.args(["-w", "0", "-d", project_path, "claude"]);
+        if let Some(session_id) = session_id.filter(|id| !id.trim().is_empty()) {
+            terminal.arg("--resume").arg(session_id);
+        }
+        return terminal.spawn().map(|_| ()).map_err(|error| error.to_string());
     }
 
     open_path(project_path)
