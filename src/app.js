@@ -27,6 +27,660 @@ const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
 const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
+const BODY_DOUBLE_CLICK_MS = 550;
+const BODY_DOUBLE_CLICK_DISTANCE = 8;
+
+const container = document.getElementById("lights-container");
+const menu = document.getElementById("menu");
+const standbyLight = createStandbyLight();
+container.appendChild(standbyLight);
+
+tauriEvent?.listen("state-changed", (event) => {
+  lights = Array.isArray(event.payload) ? event.payload : [];
+  render();
+});
+
+tauriEvent?.listen("appearance-changed", (event) => {
+  applyAppearance(event.payload);
+});
+
+document.addEventListener("click", (event) => {
+  if (!menu.contains(event.target)) {
+    hideMenu();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideMenu();
+  }
+});
+
+let isDragging = false;
+let dragStart = null;
+let dragPointerStart = null;
+let suppressClicksUntil = 0;
+
+document.addEventListener("pointerdown", async (event) => {
+  if (!shouldStartDrag(event)) return;
+
+  dragPointerStart = {
+    mouseX: event.screenX,
+    mouseY: event.screenY,
+    startedAt: performance.now(),
+  };
+
+  try {
+    await currentWindow?.startDragging?.();
+    return;
+  } catch {}
+
+  isDragging = true;
+  const pos = await currentWindow?.outerPosition();
+  dragStart = {
+    mouseX: event.screenX,
+    mouseY: event.screenY,
+    winX: pos?.x ?? 0,
+    winY: pos?.y ?? 0,
+  };
+  try {
+    event.target.setPointerCapture(event.pointerId);
+  } catch {}
+});
+
+document.addEventListener("pointermove", async (event) => {
+  if (!isDragging || !dragStart || !currentWindow) return;
+
+  const dx = event.screenX - dragStart.mouseX;
+  const dy = event.screenY - dragStart.mouseY;
+  if (distanceExceedsDragThreshold(dx, dy)) {
+    suppressNextClick();
+  }
+
+  try {
+    const PhysicalPosition = window.__TAURI__?.dpi?.PhysicalPosition;
+    if (PhysicalPosition) {
+      await currentWindow.setPosition(
+        new PhysicalPosition(dragStart.winX + dx, dragStart.winY + dy),
+      );
+    }
+  } catch {}
+});
+
+document.addEventListener("pointerup", () => {
+  isDragging = false;
+  dragStart = null;
+});
+
+function render() {
+  const displayedLights = isLightWindow
+    ? lights.filter((light) => light.project_id === currentProjectId)
+    : [];
+  const visibleProjectIds = new Set(displayedLights.map((light) => light.project_id));
+  standbyLight.hidden = isLightWindow || lights.length > 0;
+
+  for (const light of displayedLights) {
+    let element = lightElements.get(light.project_id);
+    if (!element) {
+      element = createProjectLight(light);
+      lightElements.set(light.project_id, element);
+      container.appendChild(element);
+    }
+
+    updateProjectLight(element, light);
+  }
+
+  for (const [projectId, element] of lightElements) {
+    if (!visibleProjectIds.has(projectId)) {
+      element.remove();
+      lightElements.delete(projectId);
+    }
+  }
+
+  scheduleWindowResize();
+}
+
+function createStandbyLight() {
+  const root = createLightElement({
+    label: "",
+    status: "Idle",
+    title: "AI Light\nIdle",
+    standby: true,
+  });
+
+  root.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    showMenu(event.clientX, event.clientY, [
+      keepOnTopMenuItem(),
+      ["Settings", () => safeInvoke("open_settings")],
+      ["Quit", () => safeInvoke("quit_app")],
+    ]);
+  });
+
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
+    openCodex();
+  });
+
+  return root;
+}
+
+function createProjectLight(lightState) {
+  const root = createLightElement({
+    label: lightState.project_label,
+    status: lightState.status,
+    title: tooltipFor(lightState),
+  });
+  root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
+
+  let clickTimer = 0;
+  let lastBodyClick = null;
+
+  // Tauri's native window drag can consume the browser's normal dblclick event.
+  // Detect the second press before the document-level drag handler runs so an
+  // attached light can always be detached without starting another drag.
+  root.addEventListener(
+    "pointerdown",
+    async (event) => {
+      if (
+        event.button !== 0 ||
+        event.target.closest(".project-label, .menu, button") ||
+        !lastBodyClick
+      ) {
+        return;
+      }
+
+      const elapsed = performance.now() - lastBodyClick.at;
+      const dx = event.screenX - lastBodyClick.screenX;
+      const dy = event.screenY - lastBodyClick.screenY;
+      const isDoubleClick =
+        elapsed <= BODY_DOUBLE_CLICK_MS &&
+        Math.hypot(dx, dy) <= BODY_DOUBLE_CLICK_DISTANCE;
+      if (!isDoubleClick) return;
+
+      lastBodyClick = null;
+      window.clearTimeout(clickTimer);
+      event.preventDefault();
+      event.stopPropagation();
+
+      const detached = await safeInvoke("detach_current_light");
+      if (detached) {
+        root.classList.remove("is-attached");
+      } else {
+        openCodex(root.dataset.codexSessionId || null);
+      }
+    },
+    { capture: true },
+  );
+
+  root.addEventListener("click", (event) => {
+    if (consumeSuppressedClick(event)) return;
+    if (event.detail > 1) return;
+    lastBodyClick = {
+      at: performance.now(),
+      screenX: event.screenX,
+      screenY: event.screenY,
+    };
+    window.clearTimeout(clickTimer);
+    clickTimer = window.setTimeout(() => {
+      lastBodyClick = null;
+      openCodex(root.dataset.codexSessionId || null);
+    }, BODY_DOUBLE_CLICK_MS);
+  });
+  root.addEventListener("dblclick", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    window.clearTimeout(clickTimer);
+    const attached = await safeInvoke("is_current_light_attached");
+    if (attached) {
+      const detached = await safeInvoke("detach_current_light");
+      root.classList.toggle("is-attached", !detached);
+      return;
+    }
+    openCodex(root.dataset.codexSessionId || null);
+  });
+
+  const projectLabel = root.querySelector(".project-label");
+  projectLabel?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleProjectLabel(root, projectLabel);
+  });
+  projectLabel?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleProjectLabel(root, projectLabel);
+  });
+  projectLabel?.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  root.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    const projectId = root.dataset.projectId;
+    const projectPath = root.dataset.projectPath || projectId;
+    const codexSessionId = root.dataset.codexSessionId || null;
+    const menuItems = [
+      keepOnTopMenuItem(),
+      ["Detach from Group", () => safeInvoke("detach_current_light")],
+      ["Open Codex", () => openCodex(codexSessionId)],
+      ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
+      ["Copy Path", () => copyProjectPath(projectPath)],
+      ["Settings", () => safeInvoke("open_settings")],
+    ];
+
+    if (root.dataset.status === "Error" || root.dataset.status === "Done") {
+      menuItems.push(["Clear", () => safeInvoke("confirm_light", { projectId })]);
+    }
+
+    menuItems.push(["Remove", () => safeInvoke("remove_light", { projectId })]);
+    showMenu(event.clientX, event.clientY, menuItems);
+  });
+
+  updateProjectLight(root, lightState);
+  return root;
+}
+
+function createLightElement({ label, status, title, standby = false }) {
+  const root = document.createElement("section");
+  root.className = `traffic-light${standby ? " standby" : ""}`;
+  root.title = title;
+  root.dataset.status = status;
+  root.dataset.label = label || "unknown";
+
+  const panel = document.createElement("div");
+  panel.className = "panel-art";
+  panel.setAttribute("aria-hidden", "true");
+
+  const redLamp = document.createElement("div");
+  redLamp.className = "status-lamp status-lamp-red";
+
+  const yellowLamp = document.createElement("div");
+  yellowLamp.className = "status-lamp status-lamp-yellow";
+
+  const greenLamp = document.createElement("div");
+  greenLamp.className = "status-lamp status-lamp-green";
+
+  const projectLabel = document.createElement("div");
+  projectLabel.className = "project-label";
+  projectLabel.textContent = standby ? "" : label || "unknown";
+  if (!standby) {
+    projectLabel.role = "button";
+    projectLabel.tabIndex = 0;
+    projectLabel.setAttribute("aria-expanded", "false");
+    projectLabel.title = "Click to show the full project name";
+  }
+
+  panel.append(redLamp, yellowLamp, greenLamp);
+  root.append(projectLabel, panel);
+  return root;
+}
+
+function toggleProjectLabel(root, projectLabel) {
+  const expanded = root.classList.toggle("label-expanded");
+  projectLabel.setAttribute("aria-expanded", String(expanded));
+  projectLabel.title = expanded
+    ? "Click to collapse the project name"
+    : "Click to show the full project name";
+  keepBottomOnNextResize = true;
+  lastWindowSize = { width: 0, height: 0 };
+  scheduleWindowResize();
+}
+
+function updateProjectLight(root, lightState) {
+  root.dataset.projectId = lightState.project_id;
+  root.dataset.projectPath = lightState.project_path || lightState.project_id;
+  root.dataset.status = lightState.status;
+  root.dataset.label = lightState.project_label || "unknown";
+  const projectLabel = root.querySelector(".project-label");
+  if (projectLabel) {
+    projectLabel.textContent = lightState.project_label || "unknown";
+  }
+  root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
+  root.title = tooltipFor(lightState);
+  root.classList.add("is-actionable");
+  if (isLightWindow) {
+    safeInvoke("is_current_light_attached").then((attached) => {
+      root.classList.toggle("is-attached", Boolean(attached));
+    });
+  }
+}
+
+function selectCodexSessionId(lightState) {
+  const sessions = Array.isArray(lightState.sessions) ? lightState.sessions : [];
+  const codexSessions = sessions.filter((session) => session.tool === "Codex");
+  if (codexSessions.length === 0) {
+    return null;
+  }
+
+  const matchingStatus = [...codexSessions]
+    .reverse()
+    .find((session) => session.status === lightState.status);
+
+  return (matchingStatus || codexSessions[codexSessions.length - 1]).session_id || null;
+}
+
+function tooltipFor(lightState) {
+  const parts = [
+    lightState.project_label || lightState.project_id,
+    lightState.status || "Idle",
+  ];
+
+  if (lightState.sessions && lightState.sessions.length > 0) {
+    const tools = [...new Set(lightState.sessions.map((s) => s.tool || "?"))];
+    parts.push("───");
+    parts.push("Tools: " + tools.join(", "));
+  }
+
+  if (lightState.last_tool_call) {
+    parts.push("Last: " + lightState.last_tool_call);
+  }
+
+  return parts.join("\n");
+}
+
+function showMenu(x, y, items) {
+  menu.replaceChildren();
+
+  for (const [label, action, className] of [
+    ["Close", () => safeInvoke("hide_all_windows"), "menu-close"],
+    ...items,
+  ]) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.textContent = label;
+    if (className) {
+      item.classList.add(className);
+    }
+    item.addEventListener("click", () => {
+      hideMenu();
+      action();
+    });
+    menu.appendChild(item);
+  }
+
+  menu.hidden = false;
+  const { innerWidth, innerHeight } = window;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(
+    MENU_EDGE_GUTTER,
+    Math.min(x, innerWidth - rect.width - MENU_EDGE_GUTTER),
+  )}px`;
+  menu.style.top = `${Math.max(
+    MENU_EDGE_GUTTER,
+    Math.min(y, innerHeight - rect.height - MENU_EDGE_GUTTER),
+  )}px`;
+  scheduleWindowResize();
+}
+
+function hideMenu() {
+  menu.hidden = true;
+  scheduleWindowResize();
+}
+
+function keepOnTopMenuItem() {
+  return [
+    `Keep on Top: ${isAlwaysOnTop ? "On" : "Off"}`,
+    toggleAlwaysOnTop,
+  ];
+}
+
+async function toggleAlwaysOnTop() {
+  const nextValue = !isAlwaysOnTop;
+  const updated = await safeInvoke("set_current_window_always_on_top", {
+    alwaysOnTop: nextValue,
+  });
+
+  if (typeof updated === "boolean") {
+    isAlwaysOnTop = updated;
+  }
+}
+
+function scheduleWindowResize() {
+  if (resizeFrame) {
+    cancelAnimationFrame(resizeFrame);
+  }
+
+  resizeFrame = requestAnimationFrame(resizeWindowToContent);
+}
+
+async function resizeWindowToContent() {
+  resizeFrame = 0;
+  if (!currentWindow) return;
+
+  const bodyStyle = getComputedStyle(document.body);
+  const paddingX =
+    parseFloat(bodyStyle.paddingLeft) + parseFloat(bodyStyle.paddingRight);
+  const paddingY =
+    parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
+
+  const contentSize = measureVisibleContent();
+  let width = Math.ceil(
+    contentSize.width +
+      paddingX +
+      WINDOW_GUTTER_X +
+      contentSize.count * WINDOW_PAINT_OVERFLOW_X_PER_LIGHT,
+  );
+  let height = Math.ceil(contentSize.height + paddingY + WINDOW_GUTTER_Y);
+
+  if (!menu.hidden) {
+    const menuRect = menu.getBoundingClientRect();
+    width = Math.max(width, Math.ceil(menuRect.right + MENU_EDGE_GUTTER));
+    height = Math.max(height, Math.ceil(menuRect.bottom + MENU_EDGE_GUTTER));
+  }
+
+  width = Math.max(48, width);
+  height = Math.max(96, height);
+
+  if (lastWindowSize.width === width && lastWindowSize.height === height) {
+    return;
+  }
+
+  try {
+    const keepBottom = keepBottomOnNextResize;
+    keepBottomOnNextResize = false;
+    await tauriCore?.invoke("resize_current_window", { width, height, keepBottom });
+    lastWindowSize = { width, height };
+    return;
+  } catch (error) {
+    console.debug("resizeWindowToContent", error);
+  }
+
+  const LogicalSize = window.__TAURI__?.dpi?.LogicalSize;
+  if (!LogicalSize) return;
+
+  try {
+    await currentWindow.setSize(new LogicalSize(width, height));
+    lastWindowSize = { width, height };
+  } catch (error) {
+    console.debug("resizeWindowToContent fallback", error);
+  }
+}
+
+function measureVisibleContent() {
+  const children = [...container.children].filter((child) => !child.hidden);
+  if (children.length === 0) {
+    return { width: 0, height: 0, count: 0 };
+  }
+
+  const containerStyle = getComputedStyle(container);
+  const gap = parseFloat(containerStyle.columnGap || containerStyle.gap) || 0;
+  const width =
+    children.reduce((sum, child) => sum + child.offsetWidth, 0) +
+    gap * Math.max(0, children.length - 1);
+  const height = Math.max(...children.map((child) => child.offsetHeight));
+
+  return { width, height, count: children.length };
+}
+
+function applyAppearance(nextAppearance) {
+  appearance = { ...appearance, ...(nextAppearance || {}) };
+  document.documentElement.style.setProperty(
+    "--light-width",
+    `${appearance.lightWidth}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--label-font-size",
+    `${appearance.labelFontSize}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--label-font-family",
+    appearance.labelFontFamily,
+  );
+  document.documentElement.style.setProperty("--label-color", appearance.labelColor);
+  document.documentElement.style.setProperty(
+    "--label-font-weight",
+    appearance.labelFontWeight,
+  );
+  document.documentElement.style.setProperty("--panel-color", appearance.panelColor);
+  lastWindowSize = { width: 0, height: 0 };
+  scheduleWindowResize();
+}
+
+function shouldStartDrag(event) {
+  if (event.button !== 0 || event.detail > 1 || !menu.hidden) {
+    return false;
+  }
+
+  if (event.target.closest(".menu, button, .project-label")) {
+    return false;
+  }
+
+  return Boolean(event.target.closest("#lights-container, .traffic-light"));
+}
+
+function suppressNextClick() {
+  suppressClicksUntil = performance.now() + DRAG_CLICK_SUPPRESS_MS;
+}
+
+function consumeSuppressedClick(event) {
+  if (dragPointerStart) {
+    const dx = event.screenX - dragPointerStart.mouseX;
+    const dy = event.screenY - dragPointerStart.mouseY;
+    const isSameGesture = performance.now() - dragPointerStart.startedAt < 3000;
+    dragPointerStart = null;
+
+    if (isSameGesture && distanceExceedsDragThreshold(dx, dy)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+  }
+
+  if (performance.now() > suppressClicksUntil) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function distanceExceedsDragThreshold(dx, dy) {
+  return Math.hypot(dx, dy) >= DRAG_DISTANCE_THRESHOLD;
+}
+
+async function safeInvoke(command, payload) {
+  try {
+    return await tauriCore?.invoke(command, payload);
+  } catch (error) {
+    console.debug(command, error);
+    return undefined;
+  }
+}
+
+function openCodex(sessionId = null) {
+  return safeInvoke("open_codex", { sessionId });
+}
+
+async function refreshLights() {
+  const nextLights = await safeInvoke("get_lights");
+  if (Array.isArray(nextLights)) {
+    lights = nextLights;
+    render();
+  }
+}
+
+async function copyProjectPath(projectId) {
+  const path = await safeInvoke("copy_path", { projectId });
+  if (path && navigator.clipboard) {
+    await navigator.clipboard.writeText(path);
+  }
+}
+
+async function showDiagnostics() {
+  const diagnostics = await safeInvoke("get_diagnostics");
+  if (!diagnostics) return;
+
+  const text = [
+    "AI Light Diagnostics",
+    "",
+    `Config: ${diagnostics.config_dir}`,
+    `Runtime: ${diagnostics.runtime_path}`,
+    `Lock: ${diagnostics.lock_path}`,
+    `Log: ${diagnostics.log_path}`,
+    `Claude settings: ${diagnostics.claude_settings_path}`,
+    `Hook binary: ${diagnostics.hook_binary_path}`,
+    `Codex sessions: ${diagnostics.codex_sessions_path}`,
+    "",
+    `Hooks installed: ${diagnostics.hooks_installed}`,
+    `Hook binary exists: ${diagnostics.hook_binary_exists}`,
+    `Runtime exists: ${diagnostics.runtime_exists}`,
+    `Light count: ${diagnostics.light_count}`,
+    "",
+    "Recent log:",
+    diagnostics.recent_log || "(empty)",
+  ].join("\n");
+
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  }
+  alert(text);
+}
+
+async function initialize() {
+  if (isLightWindow) {
+    currentProjectId = await safeInvoke("current_window_project");
+  }
+  applyAppearance(await safeInvoke("get_appearance"));
+  await refreshLights();
+  scheduleWindowResize();
+  window.setInterval(refreshLights, 1000);
+}
+
+initialize();
+const tauriEvent = window.__TAURI__?.event;
+const tauriCore = window.__TAURI__?.core;
+const currentWindow =
+  window.__TAURI__?.window?.getCurrentWindow?.() ??
+  window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.();
+const currentWindowLabel = currentWindow?.label ?? "main";
+const isLightWindow = currentWindowLabel.startsWith("light-");
+
+let lights = [];
+let currentProjectId = null;
+let appearance = {
+  lightWidth: 66,
+  labelFontFamily: "Segoe UI",
+  labelFontSize: 12,
+  labelColor: "#f5f5f5",
+  labelFontWeight: 700,
+  panelColor: "#171a1f",
+};
+const lightElements = new Map();
+let lastWindowSize = { width: 0, height: 0 };
+let resizeFrame = 0;
+let keepBottomOnNextResize = false;
+let isAlwaysOnTop = false;
+const WINDOW_GUTTER_X = 0;
+const WINDOW_GUTTER_Y = 0;
+const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
+const MENU_EDGE_GUTTER = 12;
+const DRAG_DISTANCE_THRESHOLD = 4;
+const DRAG_CLICK_SUPPRESS_MS = 350;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
