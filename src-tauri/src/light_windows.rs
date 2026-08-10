@@ -13,6 +13,7 @@ const LIGHT_WINDOW_PREFIX: &str = "light-";
 const SNAP_DISTANCE: i32 = 16;
 const SNAP_GAP: i32 = 6;
 const ALIGN_DISTANCE: i32 = 24;
+const DETACH_NUDGE_DISTANCE: i32 = 32;
 
 #[derive(Debug, Clone)]
 struct LightWindowEntry {
@@ -227,6 +228,38 @@ impl LightWindowManager {
             normalize_groups(&mut state.entries);
         }
         changed
+    }
+
+    pub fn detach_with_nudge(&self, app: &AppHandle, label: &str) -> bool {
+        let target = {
+            let Ok(mut state) = self.state.lock() else {
+                return false;
+            };
+            let Some((x, y)) = detach_nudge_target(&state.entries, label) else {
+                return false;
+            };
+            let Some(entry) = state.entries.get_mut(label) else {
+                return false;
+            };
+            entry.group_id = None;
+            entry.x = x;
+            entry.y = y;
+            let project_id = entry.project_id.clone();
+            normalize_groups(&mut state.entries);
+            state.pending_moves.insert(label.to_string());
+            state
+                .saved_positions
+                .insert(project_id, SavedPosition { x, y });
+            (x, y)
+        };
+
+        if let Some(window) = app.get_webview_window(label) {
+            let _ = window.set_position(Position::Physical(PhysicalPosition::new(
+                target.0, target.1,
+            )));
+        }
+        self.save_positions();
+        true
     }
 
     pub fn is_attached(&self, label: &str) -> bool {
@@ -541,6 +574,28 @@ fn nearest_snap(
         .map(|(_, label, x, y)| (label, x, y))
 }
 
+fn detach_nudge_target(
+    entries: &HashMap<String, LightWindowEntry>,
+    label: &str,
+) -> Option<(i32, i32)> {
+    let clicked = entries.get(label)?;
+    let group_id = clicked.group_id?;
+    let mut group: Vec<&LightWindowEntry> = entries
+        .values()
+        .filter(|entry| entry.group_id == Some(group_id))
+        .collect();
+    group.sort_by(|left, right| left.x.cmp(&right.x).then(left.label.cmp(&right.label)));
+    let index = group.iter().position(|entry| entry.label == label)?;
+
+    if index == 0 {
+        Some((clicked.x.saturating_sub(DETACH_NUDGE_DISTANCE), clicked.y))
+    } else if index + 1 == group.len() {
+        Some((clicked.x.saturating_add(DETACH_NUDGE_DISTANCE), clicked.y))
+    } else {
+        Some((clicked.x, clicked.y.saturating_sub(DETACH_NUDGE_DISTANCE)))
+    }
+}
+
 fn windows_touch(left: &LightWindowEntry, right: &LightWindowEntry) -> bool {
     if (left.y - right.y).abs() > ALIGN_DISTANCE {
         return false;
@@ -641,5 +696,21 @@ mod tests {
             ("b".to_string(), entry("b", 174, 180)),
         ]);
         assert!(nearest_snap(&entries, "b").is_none());
+    }
+
+    #[test]
+    fn nudges_outer_group_members_outward_and_middle_member_up() {
+        let mut entries = HashMap::from([
+            ("a".to_string(), entry("a", 100, 100)),
+            ("b".to_string(), entry("b", 172, 100)),
+            ("c".to_string(), entry("c", 244, 100)),
+        ]);
+        for item in entries.values_mut() {
+            item.group_id = Some(7);
+        }
+
+        assert_eq!(detach_nudge_target(&entries, "a"), Some((68, 100)));
+        assert_eq!(detach_nudge_target(&entries, "b"), Some((172, 68)));
+        assert_eq!(detach_nudge_target(&entries, "c"), Some((276, 100)));
     }
 }
