@@ -542,6 +542,16 @@ function measureVisibleContent() {
   return { width, height, count: children.length };
 }
 
+async function revealCurrentLightWindow() {
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  if (resizeFrame) {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = 0;
+  }
+  await resizeWindowToContent();
+  await safeInvoke("show_current_light");
+}
+
 function selectSessionTarget(lightState) {
   const sessions = Array.isArray(lightState.sessions) ? lightState.sessions : [];
   if (!sessions.length) return null;
@@ -733,7 +743,11 @@ async function initialize() {
   }
   applyAppearance(await safeInvoke("get_appearance"));
   await refreshLights();
-  scheduleWindowResize();
+  if (isLightWindow) {
+    await revealCurrentLightWindow();
+  } else {
+    scheduleWindowResize();
+  }
   updateActivityState();
 }
 

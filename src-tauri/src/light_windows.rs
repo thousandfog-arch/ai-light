@@ -6,7 +6,7 @@ use std::fs;
 use std::sync::{Arc, Mutex};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, Position, WebviewUrl,
-    WebviewWindowBuilder, WindowEvent,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 const LIGHT_WINDOW_PREFIX: &str = "light-";
@@ -117,12 +117,11 @@ impl LightWindowManager {
                 continue;
             }
 
-            let (label, saved_position, visible) = {
+            let (label, saved_position) = {
                 let state = self.state.lock().map_err(|error| error.to_string())?;
                 (
                     unique_window_label(&state.entries, &light.project_id),
                     state.saved_positions.get(&light.project_id).copied(),
-                    state.user_visible,
                 )
             };
 
@@ -141,7 +140,7 @@ impl LightWindowManager {
                 .shadow(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .visible(visible)
+                .visible(false)
                 .build()
                 .map_err(|error| error.to_string())?;
 
@@ -334,6 +333,14 @@ impl LightWindowManager {
             .lock()
             .map(|state| state.user_visible)
             .unwrap_or(true)
+    }
+
+    pub fn show_when_ready(&self, window: &WebviewWindow) -> Result<bool, String> {
+        if !window.label().starts_with(LIGHT_WINDOW_PREFIX) || !self.is_user_visible() {
+            return Ok(false);
+        }
+        window.show().map_err(|error| error.to_string())?;
+        Ok(true)
     }
 
     fn reconnect_touching_windows(&self, app: &AppHandle) {

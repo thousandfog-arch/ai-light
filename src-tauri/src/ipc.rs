@@ -376,6 +376,14 @@ pub fn current_window_project(
 }
 
 #[tauri::command]
+pub fn show_current_light(
+    window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
+) -> Result<bool, String> {
+    manager.show_when_ready(&window)
+}
+
+#[tauri::command]
 pub fn detach_current_light(
     window: WebviewWindow,
     manager: State<Arc<LightWindowManager>>,
