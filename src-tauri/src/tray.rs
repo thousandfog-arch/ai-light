@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    App, AppHandle, Manager,
+    App, AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
 use std::sync::Arc;
@@ -76,19 +76,57 @@ pub fn toggle_main_window(app: &AppHandle) -> Result<(), String> {
     app.state::<Arc<LightWindowManager>>().toggle_all(app)
 }
 
-fn show_settings_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("settings")
-        .ok_or_else(|| "settings window is not available".to_string())?;
-    window.unminimize().map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())
+pub fn show_settings_window(app: &AppHandle) -> Result<(), String> {
+    let window = get_or_create_utility_window(
+        app,
+        "settings",
+        "AI Light Settings",
+        "settings.html",
+        480.0,
+        450.0,
+    )?;
+    focus_window(&window)
 }
 
-fn show_appearance_window(app: &AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("appearance")
-        .ok_or_else(|| "appearance window is not available".to_string())?;
+pub fn show_appearance_window(app: &AppHandle) -> Result<(), String> {
+    let window = get_or_create_utility_window(
+        app,
+        "appearance",
+        "AI Light Appearance",
+        "appearance.html",
+        420.0,
+        440.0,
+    )?;
+    focus_window(&window)
+}
+
+fn get_or_create_utility_window(
+    app: &AppHandle,
+    label: &str,
+    title: &str,
+    url: &str,
+    width: f64,
+    height: f64,
+) -> Result<WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window(label) {
+        return Ok(window);
+    }
+
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.to_string().into()))
+        .title(title)
+        .inner_size(width, height)
+        .resizable(false)
+        .decorations(true)
+        .transparent(false)
+        .shadow(true)
+        .always_on_top(false)
+        .skip_taskbar(false)
+        .center()
+        .build()
+        .map_err(|error| error.to_string())
+}
+
+fn focus_window(window: &WebviewWindow) -> Result<(), String> {
     window.unminimize().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
