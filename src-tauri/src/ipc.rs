@@ -99,13 +99,33 @@ pub fn open_project(project_id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_codex(session_id: Option<String>) -> Result<(), String> {
-    if let Some(session_id) = session_id.filter(|session_id| !session_id.trim().is_empty()) {
-        if open_codex_thread(&session_id).is_ok() {
-            return Ok(());
-        }
+    let session_id = session_id
+        .filter(|session_id| !session_id.trim().is_empty())
+        .ok_or_else(|| "No active Codex session is associated with this light.".to_string())?;
+    open_codex_thread(&session_id)
+}
+
+#[tauri::command]
+pub fn open_claude_session(project_path: String) -> Result<(), String> {
+    let project_path = project_path.trim();
+    if project_path.is_empty() {
+        return Err("No Claude project path is associated with this light.".to_string());
     }
 
-    open_codex_app()
+    #[cfg(target_os = "windows")]
+    {
+        let mut terminal = std::process::Command::new("wt.exe");
+        terminal.args(["-w", "0", "-d", project_path, "claude"]);
+        if terminal.spawn().is_ok() {
+            return Ok(());
+        }
+
+        let mut code = std::process::Command::new("code.exe");
+        code.args(["--reuse-window", project_path]);
+        return code.spawn().map(|_| ()).map_err(|error| error.to_string());
+    }
+
+    open_path(project_path)
 }
 
 #[tauri::command]
