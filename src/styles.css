@@ -171,7 +171,7 @@ body {
 .traffic-light[data-status="Working"] .status-lamp-yellow::before {
   background: radial-gradient(circle at 42% 34%, #fff8bd 0 8%, #ffd447 24%, #e59b16 64%, #60400a 100%);
   opacity: 1;
-  animation: yellow-breathe 1.45s ease-in-out infinite;
+  animation: yellow-breathe 2.4s ease-in-out infinite;
 }
 
 .traffic-light[data-status="Working"] .status-lamp-yellow::after {
@@ -182,7 +182,7 @@ body {
 .traffic-light[data-status="Done"] .status-lamp-green::before {
   background: radial-gradient(circle at 42% 34%, #d5ffdc 0 8%, #58ef77 24%, #10c74a 62%, #075b25 100%);
   opacity: 1;
-  animation: green-settle 2.2s ease-in-out infinite;
+  animation: green-settle 1.8s ease-in-out 2;
 }
 
 .traffic-light[data-status="Done"] .status-lamp-green::after {
@@ -225,6 +225,12 @@ body {
   50% {
     filter: brightness(1.12);
   }
+}
+
+:root.is-background-paused *,
+:root.is-background-paused *::before,
+:root.is-background-paused *::after {
+  animation-play-state: paused !important;
 }
 
 .menu {
