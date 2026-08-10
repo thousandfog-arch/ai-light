@@ -20,6 +20,8 @@ pub struct HookEvent {
     pub tool_call: Option<String>,
     #[serde(default = "default_source", alias = "source", alias = "toolSource", alias = "tool_source")]
     pub tool_source: String,
+    #[serde(default)]
+    pub origin: String,
 }
 
 fn default_session_id() -> String {
@@ -193,7 +195,7 @@ fn apply_hook_event(aggregator: &StateAggregator, event: HookEvent) {
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_else(|| PathBuf::from("."));
 
-            aggregator.add_session(event.session_id, tool, &cwd, Status::Idle);
+            aggregator.add_session_with_origin(event.session_id, tool, &cwd, Status::Idle, &event.origin);
         }
         "session-end" => {
             aggregator.remove_session(&event.session_id);
@@ -208,7 +210,7 @@ fn apply_hook_event(aggregator: &StateAggregator, event: HookEvent) {
                     && event.session_id != "unknown"
                 {
                     if let Some(cwd) = event.cwd.as_deref().map(PathBuf::from) {
-                        aggregator.add_session(event.session_id.clone(), tool, &cwd, status);
+                        aggregator.add_session_with_origin(event.session_id.clone(), tool, &cwd, status, &event.origin);
                     }
                 } else {
                     aggregator.update_session_status(&event.session_id, status);
