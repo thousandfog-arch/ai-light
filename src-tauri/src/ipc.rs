@@ -274,6 +274,15 @@ pub fn detach_current_light(
 }
 
 #[tauri::command]
+pub fn detach_current_light_with_nudge(
+    app: AppHandle,
+    window: WebviewWindow,
+    manager: State<Arc<LightWindowManager>>,
+) -> bool {
+    manager.detach_with_nudge(&app, window.label())
+}
+
+#[tauri::command]
 pub fn is_current_light_attached(
     window: WebviewWindow,
     manager: State<Arc<LightWindowManager>>,

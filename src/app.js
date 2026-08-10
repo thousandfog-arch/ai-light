@@ -27,8 +27,8 @@ const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
 const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
-const BODY_DOUBLE_CLICK_MS = 550;
-const BODY_DOUBLE_CLICK_DISTANCE = 8;
+const BODY_TRIPLE_CLICK_MS = 720;
+const BODY_TRIPLE_CLICK_DISTANCE = 10;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
@@ -203,69 +203,49 @@ function createProjectLight(lightState) {
 
   let clickTimer = 0;
   let lastBodyClick = null;
+  let bodyClickStreak = 0;
 
-  // Tauri's native window drag can consume the browser's normal dblclick event.
-  // Detect the second press before the document-level drag handler runs so an
-  // attached light can always be detached without starting another drag.
-  root.addEventListener(
-    "pointerdown",
-    async (event) => {
-      if (
-        event.button !== 0 ||
-        event.target.closest(".project-label, .menu, button") ||
-        !lastBodyClick
-      ) {
-        return;
-      }
-
-      const elapsed = performance.now() - lastBodyClick.at;
-      const dx = event.screenX - lastBodyClick.screenX;
-      const dy = event.screenY - lastBodyClick.screenY;
-      const isDoubleClick =
-        elapsed <= BODY_DOUBLE_CLICK_MS &&
-        Math.hypot(dx, dy) <= BODY_DOUBLE_CLICK_DISTANCE;
-      if (!isDoubleClick) return;
-
+  root.addEventListener("click", async (event) => {
+    if (consumeSuppressedClick(event)) {
+      bodyClickStreak = 0;
       lastBodyClick = null;
-      window.clearTimeout(clickTimer);
-      event.preventDefault();
-      event.stopPropagation();
+      return;
+    }
 
-      const detached = await safeInvoke("detach_current_light");
-      if (detached) {
-        root.classList.remove("is-attached");
-      } else {
-        openCodex(root.dataset.codexSessionId || null);
-      }
-    },
-    { capture: true },
-  );
-
-  root.addEventListener("click", (event) => {
-    if (consumeSuppressedClick(event)) return;
-    if (event.detail > 1) return;
+    const now = performance.now();
+    const continuesStreak =
+      lastBodyClick &&
+      now - lastBodyClick.at <= BODY_TRIPLE_CLICK_MS &&
+      Math.hypot(
+        event.screenX - lastBodyClick.screenX,
+        event.screenY - lastBodyClick.screenY,
+      ) <= BODY_TRIPLE_CLICK_DISTANCE;
+    bodyClickStreak = continuesStreak ? bodyClickStreak + 1 : 1;
     lastBodyClick = {
-      at: performance.now(),
+      at: now,
       screenX: event.screenX,
       screenY: event.screenY,
     };
     window.clearTimeout(clickTimer);
-    clickTimer = window.setTimeout(() => {
+
+    if (bodyClickStreak >= 3) {
+      event.preventDefault();
+      event.stopPropagation();
+      bodyClickStreak = 0;
       lastBodyClick = null;
-      openCodex(root.dataset.codexSessionId || null);
-    }, BODY_DOUBLE_CLICK_MS);
-  });
-  root.addEventListener("dblclick", async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    window.clearTimeout(clickTimer);
-    const attached = await safeInvoke("is_current_light_attached");
-    if (attached) {
-      const detached = await safeInvoke("detach_current_light");
-      root.classList.toggle("is-attached", !detached);
+      const detached = await safeInvoke("detach_current_light_with_nudge");
+      if (detached) {
+        root.classList.remove("is-attached");
+      }
       return;
     }
-    openCodex(root.dataset.codexSessionId || null);
+
+    if (bodyClickStreak > 1) return;
+    clickTimer = window.setTimeout(() => {
+      bodyClickStreak = 0;
+      lastBodyClick = null;
+      openCodex(root.dataset.codexSessionId || null);
+    }, BODY_TRIPLE_CLICK_MS);
   });
 
   const projectLabel = root.querySelector(".project-label");

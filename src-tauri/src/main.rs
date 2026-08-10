@@ -52,6 +52,7 @@ fn main() {
             ipc::hide_all_windows,
             ipc::current_window_project,
             ipc::detach_current_light,
+            ipc::detach_current_light_with_nudge,
             ipc::is_current_light_attached,
             ipc::resize_current_window,
             ipc::set_current_window_always_on_top,
