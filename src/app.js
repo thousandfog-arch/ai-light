@@ -361,6 +361,7 @@ function updateProjectLight(root, lightState) {
   const target = selectSessionTarget(lightState);
   root.dataset.sessionTool = target?.tool || "";
   root.dataset.sessionId = target?.sessionId || "";
+  root.dataset.sessionOrigin = target?.origin || "";
   root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
   root.title = tooltipFor(lightState);
   root.classList.add("is-actionable");
@@ -549,7 +550,9 @@ function selectSessionTarget(lightState) {
   const pool = candidates.length ? candidates : sessions;
   const matching = [...pool].reverse().find((session) => session.status === lightState.status);
   const session = matching || pool[pool.length - 1];
-  return session ? { tool: session.tool || "", sessionId: session.session_id || "" } : null;
+  return session
+    ? { tool: session.tool || "", sessionId: session.session_id || "", origin: session.origin || "" }
+    : null;
 }
 
 function openSessionForLight(root) {
@@ -559,6 +562,8 @@ function openSessionForLight(root) {
   if (tool === "ClaudeCode") {
     return safeInvoke("open_claude_session", {
       projectPath: root.dataset.projectPath || root.dataset.projectId || "",
+      sessionId,
+      origin: root.dataset.sessionOrigin || "unknown",
     });
   }
   return safeInvoke("open_project", {
