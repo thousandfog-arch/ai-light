@@ -194,7 +194,7 @@ impl LightWindowManager {
             let _ = crate::window_state::ensure_window_visible(&window);
         }
 
-        self.reconnect_touching_windows();
+        self.reconnect_touching_windows(app);
 
         if lights.is_empty() {
             if self.is_user_visible() {
@@ -336,21 +336,15 @@ impl LightWindowManager {
             .unwrap_or(true)
     }
 
-    fn reconnect_touching_windows(&self) {
+    fn reconnect_touching_windows(&self, app: &AppHandle) {
+        let mut native_moves = Vec::new();
         if let Ok(mut state) = self.state.lock() {
-            let labels: Vec<String> = state.entries.keys().cloned().collect();
-            for (index, left_label) in labels.iter().enumerate() {
-                for right_label in labels.iter().skip(index + 1) {
-                    let Some(left) = state.entries.get(left_label).cloned() else {
-                        continue;
-                    };
-                    let Some(right) = state.entries.get(right_label).cloned() else {
-                        continue;
-                    };
-                    if windows_touch(&left, &right) {
-                        connect_entries(&mut state, left_label, right_label);
-                    }
-                }
+            connect_touching_entries(&mut state);
+            native_moves = align_all_groups(&mut state);
+        }
+        for (label, x, y) in native_moves {
+            if let Some(window) = app.get_webview_window(&label) {
+                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
             }
         }
     }
@@ -411,6 +405,27 @@ impl LightWindowManager {
                             state.pending_moves.insert(companion_label);
                         }
                     }
+                    if let Some((neighbor_label, snap_x, snap_y)) =
+                        nearest_snap(&state.entries, label)
+                    {
+                        let correction_x = snap_x - state.entries[label].x;
+                        let correction_y = snap_y - state.entries[label].y;
+                        let group_labels: Vec<String> = state
+                            .entries
+                            .values()
+                            .filter(|entry| entry.group_id == Some(group_id))
+                            .map(|entry| entry.label.clone())
+                            .collect();
+                        for group_label in group_labels {
+                            if let Some(entry) = state.entries.get_mut(&group_label) {
+                                entry.x += correction_x;
+                                entry.y += correction_y;
+                                native_moves.push((group_label.clone(), entry.x, entry.y));
+                                state.pending_moves.insert(group_label);
+                            }
+                        }
+                        connect_entries(&mut state, label, &neighbor_label);
+                    }
                 } else if let Some((neighbor_label, snap_x, snap_y)) =
                     nearest_snap(&state.entries, label)
                 {
@@ -422,6 +437,9 @@ impl LightWindowManager {
                     state.pending_moves.insert(label.to_string());
                     native_moves.push((label.to_string(), snap_x, snap_y));
                 }
+
+                connect_touching_entries(&mut state);
+                native_moves.extend(align_all_groups(&mut state));
 
                 let saved: Vec<(String, SavedPosition)> = state
                     .entries
@@ -522,6 +540,48 @@ impl LightWindowManager {
     }
 }
 
+fn connect_touching_entries(state: &mut LightWindowState) {
+    let labels: Vec<String> = state.entries.keys().cloned().collect();
+    for (index, left_label) in labels.iter().enumerate() {
+        for right_label in labels.iter().skip(index + 1) {
+            let Some(left) = state.entries.get(left_label).cloned() else { continue; };
+            let Some(right) = state.entries.get(right_label).cloned() else { continue; };
+            if windows_touch(&left, &right) {
+                connect_entries(state, left_label, right_label);
+            }
+        }
+    }
+}
+
+fn align_all_groups(state: &mut LightWindowState) -> Vec<(String, i32, i32)> {
+    let groups: HashSet<u64> = state.entries.values().filter_map(|entry| entry.group_id).collect();
+    let mut moves = Vec::new();
+    for group_id in groups {
+        let mut labels: Vec<String> = state.entries.values()
+            .filter(|entry| entry.group_id == Some(group_id))
+            .map(|entry| entry.label.clone()).collect();
+        if labels.len() < 2 { continue; }
+        labels.sort_by(|a, b| state.entries[a].x.cmp(&state.entries[b].x).then(a.cmp(b)));
+        let first = state.entries[&labels[0]].clone();
+        let anchor_bottom = first.y + first.height;
+        let mut next_x = first.x;
+        for label in labels {
+            if let Some(entry) = state.entries.get_mut(&label) {
+                let y = anchor_bottom - entry.height;
+                let changed = entry.x != next_x || entry.y != y;
+                entry.x = next_x;
+                entry.y = y;
+                next_x += entry.width + SNAP_GAP;
+                if changed {
+                    state.pending_moves.insert(label.clone());
+                    moves.push((label, entry.x, entry.y));
+                }
+            }
+        }
+    }
+    moves
+}
+
 pub fn light_dimensions(width: u16, label_font_size: u16) -> (f64, f64) {
     let width = f64::from(width.clamp(44, 100));
     let label_height = f64::from(label_font_size.clamp(8, 24)) * 1.55 + 4.0;
@@ -556,6 +616,7 @@ fn nearest_snap(
     entries
         .values()
         .filter(|other| other.label != moved_label)
+        .filter(|other| moved.group_id.is_none() || other.group_id != moved.group_id)
         .filter_map(|other| {
             if (moved.y - other.y).abs() > ALIGN_DISTANCE {
                 return None;
@@ -600,8 +661,8 @@ fn windows_touch(left: &LightWindowEntry, right: &LightWindowEntry) -> bool {
     if (left.y - right.y).abs() > ALIGN_DISTANCE {
         return false;
     }
-    ((left.x + left.width + SNAP_GAP) - right.x).abs() <= 2
-        || ((right.x + right.width + SNAP_GAP) - left.x).abs() <= 2
+    ((left.x + left.width + SNAP_GAP) - right.x).abs() <= SNAP_DISTANCE
+        || ((right.x + right.width + SNAP_GAP) - left.x).abs() <= SNAP_DISTANCE
 }
 
 fn connect_entries(state: &mut LightWindowState, left_label: &str, right_label: &str) {

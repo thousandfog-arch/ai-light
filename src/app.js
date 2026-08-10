@@ -250,14 +250,13 @@ function createProjectLight(lightState) {
       clickTimer = window.setTimeout(() => {
         bodyClickStreak = 0;
         lastBodyClick = null;
-        openCodex(root.dataset.codexSessionId || null);
+        openSessionForLight(root);
       }, BODY_TRIPLE_CLICK_MS);
       return;
     }
     clickTimer = window.setTimeout(() => {
       bodyClickStreak = 0;
       lastBodyClick = null;
-      openCodex(root.dataset.codexSessionId || null);
     }, BODY_TRIPLE_CLICK_MS);
   });
 
@@ -286,7 +285,7 @@ function createProjectLight(lightState) {
     const menuItems = [
       keepOnTopMenuItem(),
       ["Detach from Group", () => safeInvoke("detach_current_light")],
-      ["Open Codex", () => openCodex(codexSessionId)],
+      ["Open Session", () => openSessionForLight(root)],
       ["Open Folder", () => safeInvoke("open_project", { projectId: projectPath })],
       ["Copy Path", () => copyProjectPath(projectPath)],
       ["Settings", () => safeInvoke("open_settings")],
@@ -359,6 +358,10 @@ function updateProjectLight(root, lightState) {
   if (projectLabel) {
     projectLabel.textContent = lightState.project_label || "unknown";
   }
+  const target = selectSessionTarget(lightState);
+  root.dataset.sessionTool = target?.tool || "";
+  root.dataset.sessionId = target?.sessionId || "";
+  root.dataset.sessionOrigin = target?.origin || "";
   root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
   root.title = tooltipFor(lightState);
   root.classList.add("is-actionable");
@@ -534,6 +537,38 @@ function measureVisibleContent() {
   const height = Math.max(...children.map((child) => child.offsetHeight));
 
   return { width, height, count: children.length };
+}
+
+function selectSessionTarget(lightState) {
+  const sessions = Array.isArray(lightState.sessions) ? lightState.sessions : [];
+  if (!sessions.length) return null;
+  const identity = `${lightState.project_label || ""} ${lightState.project_id || ""} ${lightState.project_path || ""}`.toLowerCase();
+  const preferredTool = identity.includes("claude") ? "ClaudeCode" : identity.includes("codex") ? "Codex" : null;
+  const candidates = preferredTool
+    ? sessions.filter((session) => session.tool === preferredTool)
+    : sessions.filter((session) => session.tool === "Codex");
+  const pool = candidates.length ? candidates : sessions;
+  const matching = [...pool].reverse().find((session) => session.status === lightState.status);
+  const session = matching || pool[pool.length - 1];
+  return session
+    ? { tool: session.tool || "", sessionId: session.session_id || "", origin: session.origin || "" }
+    : null;
+}
+
+function openSessionForLight(root) {
+  const tool = root.dataset.sessionTool;
+  const sessionId = root.dataset.sessionId || null;
+  if (tool === "Codex") return safeInvoke("open_codex", { sessionId });
+  if (tool === "ClaudeCode") {
+    return safeInvoke("open_claude_session", {
+      projectPath: root.dataset.projectPath || root.dataset.projectId || "",
+      sessionId,
+      origin: root.dataset.sessionOrigin || "unknown",
+    });
+  }
+  return safeInvoke("open_project", {
+    projectId: root.dataset.projectPath || root.dataset.projectId || "",
+  });
 }
 
 function applyAppearance(nextAppearance) {

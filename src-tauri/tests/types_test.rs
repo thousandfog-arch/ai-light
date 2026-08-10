@@ -29,6 +29,7 @@ fn test_light_state_aggregation() {
     light.sessions.push(SessionRef {
         session_id: "s1".to_string(),
         tool: Tool::ClaudeCode,
+        origin: "unknown".to_string(),
         status: Status::Working,
         started_at: Instant::now(),
     });
@@ -39,6 +40,7 @@ fn test_light_state_aggregation() {
     light.sessions.push(SessionRef {
         session_id: "s2".to_string(),
         tool: Tool::Codex,
+        origin: "unknown".to_string(),
         status: Status::Error,
         started_at: Instant::now(),
     });

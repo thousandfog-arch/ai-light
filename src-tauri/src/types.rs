@@ -58,6 +58,8 @@ impl fmt::Display for Tool {
 pub struct SessionRef {
     pub session_id: String,
     pub tool: Tool,
+    #[serde(default)]
+    pub origin: String,
     pub status: Status,
     #[serde(skip)]
     pub started_at: Instant,
@@ -114,6 +116,7 @@ mod tests {
         SessionRef {
             session_id: format!("{status:?}"),
             tool: Tool::Codex,
+            origin: "unknown".to_string(),
             status,
             started_at: Instant::now(),
         }
