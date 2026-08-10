@@ -38,6 +38,7 @@ fn main() {
             ipc::get_diagnostics,
             ipc::open_project,
             ipc::open_codex,
+            ipc::open_claude_session,
             ipc::open_session_logs,
             ipc::open_app_log,
             ipc::get_app_config,
@@ -96,6 +97,18 @@ fn main() {
                 }
                 _ => {}
             });
+
+            for label in ["settings", "appearance"] {
+                if let Some(utility_window) = app.get_webview_window(label) {
+                    let window_to_hide = utility_window.clone();
+                    utility_window.on_window_event(move |event| {
+                        if let WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            let _ = window_to_hide.hide();
+                        }
+                    });
+                }
+            }
 
             let emit_aggregator = Arc::clone(&aggregator);
             let sync_manager = Arc::clone(&light_window_manager);
