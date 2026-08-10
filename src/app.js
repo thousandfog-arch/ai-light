@@ -27,6 +27,8 @@ const WINDOW_PAINT_OVERFLOW_X_PER_LIGHT = 0;
 const MENU_EDGE_GUTTER = 12;
 const DRAG_DISTANCE_THRESHOLD = 4;
 const DRAG_CLICK_SUPPRESS_MS = 350;
+const BODY_DOUBLE_CLICK_MS = 550;
+const BODY_DOUBLE_CLICK_DISTANCE = 8;
 
 const container = document.getElementById("lights-container");
 const menu = document.getElementById("menu");
@@ -173,13 +175,58 @@ function createProjectLight(lightState) {
   root.dataset.projectPath = lightState.project_path || lightState.project_id;
 
   let clickTimer = 0;
+  let lastBodyClick = null;
+
+  // Tauri's native window drag can consume the browser's normal dblclick event.
+  // Detect the second press before the document-level drag handler runs so an
+  // attached light can always be detached without starting another drag.
+  root.addEventListener(
+    "pointerdown",
+    async (event) => {
+      if (
+        event.button !== 0 ||
+        event.target.closest(".project-label, .menu, button") ||
+        !lastBodyClick
+      ) {
+        return;
+      }
+
+      const elapsed = performance.now() - lastBodyClick.at;
+      const dx = event.screenX - lastBodyClick.screenX;
+      const dy = event.screenY - lastBodyClick.screenY;
+      const isDoubleClick =
+        elapsed <= BODY_DOUBLE_CLICK_MS &&
+        Math.hypot(dx, dy) <= BODY_DOUBLE_CLICK_DISTANCE;
+      if (!isDoubleClick) return;
+
+      lastBodyClick = null;
+      window.clearTimeout(clickTimer);
+      event.preventDefault();
+      event.stopPropagation();
+
+      const detached = await safeInvoke("detach_current_light");
+      if (detached) {
+        root.classList.remove("is-attached");
+      } else {
+        openCodex(root.dataset.codexSessionId || null);
+      }
+    },
+    { capture: true },
+  );
+
   root.addEventListener("click", (event) => {
     if (consumeSuppressedClick(event)) return;
     if (event.detail > 1) return;
+    lastBodyClick = {
+      at: performance.now(),
+      screenX: event.screenX,
+      screenY: event.screenY,
+    };
     window.clearTimeout(clickTimer);
     clickTimer = window.setTimeout(() => {
+      lastBodyClick = null;
       openCodex(root.dataset.codexSessionId || null);
-    }, 240);
+    }, BODY_DOUBLE_CLICK_MS);
   });
   root.addEventListener("dblclick", async (event) => {
     event.preventDefault();
