@@ -1,7 +1,8 @@
 {
   "bundle": {
     "resources": {
-      "../target/release/ai-light-hook.exe": "ai-light-hook.exe"
+      "../target/release/ai-light-hook.exe": "ai-light-hook.exe",
+      "../target/release/ai-light-cmd-proxy.exe": "ai-light-cmd-proxy.exe"
     }
   }
 }

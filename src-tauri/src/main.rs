@@ -152,9 +152,12 @@ fn main() {
 
             if let Ok(resource_dir) = app.path().resource_dir() {
                 let _ = ai_light::hook_installer::install_hook_binary_from_resource(&resource_dir);
+                let _ = ai_light::hook_installer::install_cmd_proxy_binary_from_resource(&resource_dir);
             }
 
-            if !ai_light::hook_installer::check_hooks_installed() {
+            if ai_light::hook_installer::check_hooks_installed() {
+                let _ = ai_light::hook_installer::configure_vscode_claude_cmd_proxy();
+            } else {
                 WebviewWindowBuilder::new(
                     app,
                     "install-hooks",

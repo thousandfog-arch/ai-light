@@ -1,3 +1,3 @@
 [workspace]
-members = ["src-tauri", "src-hook"]
+members = ["src-tauri", "src-hook", "src-cmd-proxy"]
 resolver = "2"

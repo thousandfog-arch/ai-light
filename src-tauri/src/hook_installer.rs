@@ -28,6 +28,14 @@ pub fn get_hook_binary_path() -> PathBuf {
         .join(hook_binary_name())
 }
 
+pub fn get_cmd_proxy_binary_path() -> PathBuf {
+    home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".ai_light")
+        .join("bin")
+        .join(cmd_proxy_binary_name())
+}
+
 pub fn install_hook_binary_from_resource(resource_dir: &Path) -> Result<bool, std::io::Error> {
     let Some(source) = bundled_hook_candidates(resource_dir)
         .into_iter()
@@ -46,6 +54,104 @@ pub fn install_hook_binary_from_resource(resource_dir: &Path) -> Result<bool, st
     }
 
     fs::copy(source, destination)?;
+    Ok(true)
+}
+
+pub fn install_cmd_proxy_binary_from_resource(
+    resource_dir: &Path,
+) -> Result<bool, std::io::Error> {
+    let Some(source) = bundled_cmd_proxy_candidates(resource_dir)
+        .into_iter()
+        .find(|path| path.exists())
+    else {
+        return Ok(false);
+    };
+
+    let destination = get_cmd_proxy_binary_path();
+    if hook_binary_is_current(&source, &destination)? {
+        return Ok(false);
+    }
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::copy(source, destination)?;
+    Ok(true)
+}
+
+pub fn merge_vscode_claude_cmd_proxy(
+    mut existing: Value,
+    proxy_path: &Path,
+) -> Result<Value, String> {
+    if !existing.is_object() {
+        return Err("VS Code settings root must be a JSON object".to_string());
+    }
+
+    let setting = "claudeCode.environmentVariables";
+    if existing.get(setting).is_none() {
+        existing[setting] = json!([]);
+    }
+
+    let variables = existing
+        .get_mut(setting)
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| format!("VS Code setting {setting} must be an array"))?;
+    let proxy_value = proxy_path.to_string_lossy().to_string();
+
+    for variable in variables.iter() {
+        let is_comspec = variable
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name.eq_ignore_ascii_case("ComSpec"));
+        if !is_comspec {
+            continue;
+        }
+
+        let is_our_proxy = variable
+            .get("value")
+            .and_then(Value::as_str)
+            .is_some_and(|value| value.eq_ignore_ascii_case(&proxy_value));
+        if !is_our_proxy {
+            return Err(
+                "claudeCode.environmentVariables already defines a custom ComSpec".to_string(),
+            );
+        }
+    }
+
+    variables.retain(|variable| {
+        !variable
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name.eq_ignore_ascii_case("ComSpec"))
+    });
+    variables.push(json!({ "name": "ComSpec", "value": proxy_value }));
+    Ok(existing)
+}
+
+pub fn configure_vscode_claude_cmd_proxy() -> Result<bool, Box<dyn std::error::Error>> {
+    if !cfg!(windows) {
+        return Ok(false);
+    }
+
+    let Some(settings_path) = get_vscode_settings_path() else {
+        return Ok(false);
+    };
+    if !settings_path.exists() || !get_cmd_proxy_binary_path().exists() {
+        return Ok(false);
+    }
+
+    let existing = read_settings_json(&settings_path)?;
+    let merged = merge_vscode_claude_cmd_proxy(existing.clone(), &get_cmd_proxy_binary_path())?;
+    if merged == existing {
+        return Ok(false);
+    }
+
+    fs::copy(
+        &settings_path,
+        settings_path.with_extension("json.ai-light.bak"),
+    )?;
+    fs::write(&settings_path, serde_json::to_string_pretty(&merged)?)?;
     Ok(true)
 }
 
@@ -110,6 +216,8 @@ pub fn install_hooks() -> Result<(), Box<dyn std::error::Error>> {
 
     let merged = merge_hooks(existing, &hook_path)?;
     fs::write(settings_path, serde_json::to_string_pretty(&merged)?)?;
+
+    configure_vscode_claude_cmd_proxy()?;
 
     Ok(())
 }
@@ -437,11 +545,27 @@ fn hook_binary_name() -> &'static str {
     }
 }
 
+fn cmd_proxy_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "ai-light-cmd-proxy.exe"
+    } else {
+        "ai-light-cmd-proxy"
+    }
+}
+
 fn bundled_hook_candidates(resource_dir: &Path) -> Vec<PathBuf> {
     vec![
         resource_dir.join(hook_binary_name()),
         resource_dir.join("ai-light-hook.exe"),
         resource_dir.join("ai-light-hook"),
+    ]
+}
+
+fn bundled_cmd_proxy_candidates(resource_dir: &Path) -> Vec<PathBuf> {
+    vec![
+        resource_dir.join(cmd_proxy_binary_name()),
+        resource_dir.join("ai-light-cmd-proxy.exe"),
+        resource_dir.join("ai-light-cmd-proxy"),
     ]
 }
 
@@ -597,4 +721,10 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
+}
+
+fn get_vscode_settings_path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .map(|path| path.join("Code").join("User").join("settings.json"))
 }

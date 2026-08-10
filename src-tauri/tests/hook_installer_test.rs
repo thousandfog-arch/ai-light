@@ -1,4 +1,7 @@
-use ai_light::hook_installer::{hook_binary_is_current, merge_hooks, remove_ai_light_hooks};
+use ai_light::hook_installer::{
+    hook_binary_is_current, merge_hooks, merge_vscode_claude_cmd_proxy,
+    remove_ai_light_hooks,
+};
 use serde_json::json;
 use std::path::Path;
 
@@ -170,6 +173,52 @@ fn hook_binary_current_compares_file_content() {
     assert!(hook_binary_is_current(&source, &destination).unwrap());
 
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn merge_vscode_proxy_preserves_existing_environment_variables() {
+    let existing = json!({
+        "editor.fontSize": 14,
+        "claudeCode.environmentVariables": [
+            { "name": "CLAUDE_CODE_ENABLE_TASKS", "value": "1" }
+        ]
+    });
+
+    let merged = merge_vscode_claude_cmd_proxy(
+        existing,
+        Path::new(r"C:\Users\kemp\.ai_light\bin\ai-light-cmd-proxy.exe"),
+    )
+    .unwrap();
+
+    assert_eq!(merged["editor.fontSize"], 14);
+    let variables = merged["claudeCode.environmentVariables"].as_array().unwrap();
+    assert_eq!(variables.len(), 2);
+    assert!(variables.iter().any(|variable| variable["name"] == "ComSpec"));
+}
+
+#[test]
+fn merge_vscode_proxy_is_idempotent() {
+    let proxy = Path::new(r"C:\Users\kemp\.ai_light\bin\ai-light-cmd-proxy.exe");
+    let once = merge_vscode_claude_cmd_proxy(json!({}), proxy).unwrap();
+    let twice = merge_vscode_claude_cmd_proxy(once.clone(), proxy).unwrap();
+
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn merge_vscode_proxy_does_not_overwrite_custom_comspec() {
+    let existing = json!({
+        "claudeCode.environmentVariables": [
+            { "name": "COMSPEC", "value": r"D:\Tools\custom-cmd.exe" }
+        ]
+    });
+
+    let result = merge_vscode_claude_cmd_proxy(
+        existing,
+        Path::new(r"C:\Users\kemp\.ai_light\bin\ai-light-cmd-proxy.exe"),
+    );
+
+    assert!(result.is_err());
 }
 
 fn unique_name(prefix: &str) -> String {

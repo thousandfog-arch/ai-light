@@ -28,8 +28,8 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - name: Build Claude Code hook helper
-        run: cargo build -p ai-light-hook --release
+      - name: Build Claude Code helpers
+        run: cargo build -p ai-light-hook -p ai-light-cmd-proxy --release
 
       - name: Build Tauri Windows app and installers
         run: npx --yes @tauri-apps/cli@2.11.2 build
@@ -46,6 +46,7 @@ jobs:
           path: |
             target/release/ai-light.exe
             target/release/ai-light-hook.exe
+            target/release/ai-light-cmd-proxy.exe
             target/release/WebView2Loader.dll
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
