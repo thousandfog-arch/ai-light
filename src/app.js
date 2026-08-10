@@ -362,6 +362,9 @@ function updateProjectLight(root, lightState) {
   root.dataset.sessionTool = target?.tool || "";
   root.dataset.sessionId = target?.sessionId || "";
   root.dataset.sessionOrigin = target?.origin || "";
+  root.dataset.sessionHostWindow = target?.hostWindow == null ? "" : String(target.hostWindow);
+  root.dataset.sessionTabIndex = target?.terminalTabIndex == null ? "" : String(target.terminalTabIndex);
+  root.dataset.sessionTabRuntimeId = (target?.terminalTabRuntimeId || []).join(",");
   root.dataset.codexSessionId = selectCodexSessionId(lightState) || "";
   root.title = tooltipFor(lightState);
   root.classList.add("is-actionable");
@@ -551,7 +554,14 @@ function selectSessionTarget(lightState) {
   const matching = [...pool].reverse().find((session) => session.status === lightState.status);
   const session = matching || pool[pool.length - 1];
   return session
-    ? { tool: session.tool || "", sessionId: session.session_id || "", origin: session.origin || "" }
+    ? {
+        tool: session.tool || "",
+        sessionId: session.session_id || "",
+        origin: session.origin || "",
+        hostWindow: session.host_window ?? null,
+        terminalTabIndex: session.terminal_tab_index ?? null,
+        terminalTabRuntimeId: session.terminal_tab_runtime_id || [],
+      }
     : null;
 }
 
@@ -564,6 +574,11 @@ function openSessionForLight(root) {
       projectPath: root.dataset.projectPath || root.dataset.projectId || "",
       sessionId,
       origin: root.dataset.sessionOrigin || "unknown",
+      hostWindow: root.dataset.sessionHostWindow ? Number(root.dataset.sessionHostWindow) : null,
+      terminalTabIndex: root.dataset.sessionTabIndex ? Number(root.dataset.sessionTabIndex) : null,
+      terminalTabRuntimeId: root.dataset.sessionTabRuntimeId
+        ? root.dataset.sessionTabRuntimeId.split(",").map(Number).filter(Number.isFinite)
+        : [],
     });
   }
   return safeInvoke("open_project", {

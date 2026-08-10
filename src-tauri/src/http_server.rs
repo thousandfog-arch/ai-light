@@ -22,6 +22,12 @@ pub struct HookEvent {
     pub tool_source: String,
     #[serde(default)]
     pub origin: String,
+    #[serde(default)]
+    pub host_window: Option<i64>,
+    #[serde(default)]
+    pub terminal_tab_index: Option<usize>,
+    #[serde(default)]
+    pub terminal_tab_runtime_id: Vec<i32>,
 }
 
 fn default_session_id() -> String {
@@ -195,7 +201,7 @@ fn apply_hook_event(aggregator: &StateAggregator, event: HookEvent) {
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_else(|| PathBuf::from("."));
 
-            aggregator.add_session_with_origin(event.session_id, tool, &cwd, Status::Idle, &event.origin);
+            aggregator.add_session_with_origin(event.session_id, tool, &cwd, Status::Idle, &event.origin, event.host_window, event.terminal_tab_index, event.terminal_tab_runtime_id);
         }
         "session-end" => {
             aggregator.remove_session(&event.session_id);
@@ -210,11 +216,11 @@ fn apply_hook_event(aggregator: &StateAggregator, event: HookEvent) {
                     && event.session_id != "unknown"
                 {
                     if let Some(cwd) = event.cwd.as_deref().map(PathBuf::from) {
-                        aggregator.add_session_with_origin(event.session_id.clone(), tool, &cwd, status, &event.origin);
+                        aggregator.add_session_with_origin(event.session_id.clone(), tool, &cwd, status, &event.origin, event.host_window, event.terminal_tab_index, event.terminal_tab_runtime_id.clone());
                     }
-                } else {
-                    aggregator.update_session_status(&event.session_id, status);
                 }
+                aggregator.update_session_host(&event.session_id, &event.origin, event.host_window, event.terminal_tab_index, &event.terminal_tab_runtime_id);
+                aggregator.update_session_status(&event.session_id, status);
             }
 
             if let Some(tool_call) = event.tool_call {

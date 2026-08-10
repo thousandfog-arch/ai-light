@@ -110,6 +110,9 @@ pub fn open_claude_session(
     project_path: String,
     session_id: Option<String>,
     origin: Option<String>,
+    host_window: Option<i64>,
+    terminal_tab_index: Option<usize>,
+    terminal_tab_runtime_id: Option<Vec<i32>>,
 ) -> Result<(), String> {
     let project_path = project_path.trim();
     if project_path.is_empty() {
@@ -118,6 +121,17 @@ pub fn open_claude_session(
 
     #[cfg(target_os = "windows")]
     {
+        if let Some(host_window) = host_window {
+            if focus_recorded_host(
+                host_window,
+                origin.as_deref().unwrap_or("unknown"),
+                terminal_tab_index,
+                terminal_tab_runtime_id.as_deref().unwrap_or_default(),
+            ) {
+                return Ok(());
+            }
+        }
+
         if origin.as_deref() == Some("vscode") {
             let mut code = std::process::Command::new("code.exe");
             code.args(["--reuse-window", project_path]);
@@ -135,6 +149,74 @@ pub fn open_claude_session(
     }
 
     open_path(project_path)
+}
+
+#[cfg(target_os = "windows")]
+fn focus_recorded_host(
+    host_window: i64,
+    origin: &str,
+    terminal_tab_index: Option<usize>,
+    terminal_tab_runtime_id: &[i32],
+) -> bool {
+    if host_window <= 0 || (origin != "terminal" && origin != "vscode") {
+        return false;
+    }
+    let runtime_id = terminal_tab_runtime_id
+        .iter()
+        .map(i32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let tab_index = terminal_tab_index.map(|value| value.to_string()).unwrap_or_default();
+    let script = format!(r#"
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class AiLightFocusNative {{
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}}
+'@
+$hwnd = [IntPtr]::new({host_window})
+if (-not [AiLightFocusNative]::IsWindow($hwnd)) {{ '0'; exit }}
+$ownerPid = [uint32]0
+[AiLightFocusNative]::GetWindowThreadProcessId($hwnd, [ref]$ownerPid) | Out-Null
+$process = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+$expected = '{origin}'
+if (($expected -eq 'vscode' -and $process.ProcessName -notmatch '^Code') -or ($expected -eq 'terminal' -and $process.ProcessName -notmatch 'WindowsTerminal')) {{ '0'; exit }}
+$selected = $expected -eq 'vscode'
+if ($expected -eq 'terminal') {{
+  try {{
+    Add-Type -AssemblyName UIAutomationClient
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)
+    $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+    $runtimeId = '{runtime_id}'
+    $tabIndex = '{tab_index}'
+    for ($i = 0; $i -lt $tabs.Count; $i++) {{
+      $matchesRuntime = $runtimeId -ne '' -and (($tabs.Item($i).GetRuntimeId() -join ',') -eq $runtimeId)
+      $matchesIndex = $runtimeId -eq '' -and $tabIndex -ne '' -and $i -eq [int]$tabIndex
+      if ($matchesRuntime -or $matchesIndex) {{
+        $pattern = $tabs.Item($i).GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        $pattern.Select()
+        $selected = $true
+        break
+      }}
+    }}
+  }} catch {{}}
+}}
+if (-not $selected) {{ '0'; exit }}
+[AiLightFocusNative]::ShowWindowAsync($hwnd, 9) | Out-Null
+[AiLightFocusNative]::SetForegroundWindow($hwnd) | Out-Null
+'1'
+"#);
+    std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| String::from_utf8_lossy(&output.stdout).trim().ends_with('1'))
 }
 
 #[tauri::command]

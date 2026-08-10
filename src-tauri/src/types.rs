@@ -60,6 +60,12 @@ pub struct SessionRef {
     pub tool: Tool,
     #[serde(default)]
     pub origin: String,
+    #[serde(default)]
+    pub host_window: Option<i64>,
+    #[serde(default)]
+    pub terminal_tab_index: Option<usize>,
+    #[serde(default)]
+    pub terminal_tab_runtime_id: Vec<i32>,
     pub status: Status,
     #[serde(skip)]
     pub started_at: Instant,
@@ -117,6 +123,9 @@ mod tests {
             session_id: format!("{status:?}"),
             tool: Tool::Codex,
             origin: "unknown".to_string(),
+            host_window: None,
+            terminal_tab_index: None,
+            terminal_tab_runtime_id: Vec::new(),
             status,
             started_at: Instant::now(),
         }

@@ -24,7 +24,7 @@ impl StateAggregator {
     }
 
     pub fn add_session(&self, session_id: String, tool: Tool, cwd: &Path, status: Status) {
-        self.add_session_with_origin(session_id, tool, cwd, status, "unknown");
+        self.add_session_with_origin(session_id, tool, cwd, status, "unknown", None, None, Vec::new());
     }
 
     pub fn add_session_with_origin(
@@ -34,6 +34,9 @@ impl StateAggregator {
         cwd: &Path,
         status: Status,
         origin: &str,
+        host_window: Option<i64>,
+        terminal_tab_index: Option<usize>,
+        terminal_tab_runtime_id: Vec<i32>,
     ) {
         {
             let (project_path, project_label) = identify_project(cwd);
@@ -54,6 +57,9 @@ impl StateAggregator {
                 session_id: session_id.clone(),
                 tool,
                 origin: origin.to_string(),
+                host_window,
+                terminal_tab_index,
+                terminal_tab_runtime_id,
                 status,
                 started_at: Instant::now(),
             });
@@ -64,6 +70,31 @@ impl StateAggregator {
         }
 
         self.notify_change();
+    }
+
+    pub fn update_session_host(
+        &self,
+        session_id: &str,
+        origin: &str,
+        host_window: Option<i64>,
+        terminal_tab_index: Option<usize>,
+        terminal_tab_runtime_id: &[i32],
+    ) {
+        let mut changed = false;
+        {
+            let mut state = self.state.write().expect("aggregator state lock poisoned");
+            let Some(project_id) = state.session_to_project.get(session_id).cloned() else { return; };
+            if let Some(session) = state.lights.get_mut(&project_id)
+                .and_then(|light| light.sessions.iter_mut().find(|session| session.session_id == session_id))
+            {
+                if !origin.is_empty() && origin != "unknown" { session.origin = origin.to_string(); }
+                if host_window.is_some() { session.host_window = host_window; }
+                if terminal_tab_index.is_some() { session.terminal_tab_index = terminal_tab_index; }
+                if !terminal_tab_runtime_id.is_empty() { session.terminal_tab_runtime_id = terminal_tab_runtime_id.to_vec(); }
+                changed = true;
+            }
+        }
+        if changed { self.notify_change(); }
     }
 
     pub fn update_session_status(&self, session_id: &str, new_status: Status) {
