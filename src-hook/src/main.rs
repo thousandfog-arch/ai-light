@@ -209,9 +209,9 @@ fn foreground_process() -> Option<(i64, String)> {
 
 #[cfg(target_os = "windows")]
 fn detect_terminal_context(host_window: i64) -> HostContext {
-    let script = format!(r#"
+    let script = r#"
 Add-Type -AssemblyName UIAutomationClient
-$hwnd = [IntPtr]::new({host_window})
+$hwnd = [IntPtr]::new(__HOST_WINDOW__)
 $root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
 $tabIndex = ''
 $runtimeId = ''
@@ -228,7 +228,8 @@ try {
     }
 } catch {}
 '{0}|{1}' -f $tabIndex, $runtimeId
-"#);
+"#
+    .replace("__HOST_WINDOW__", &host_window.to_string());
     if let Ok(output) = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
         .creation_flags(CREATE_NO_WINDOW)
