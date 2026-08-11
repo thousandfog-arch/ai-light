@@ -5,8 +5,8 @@ from PIL import Image, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 ICONS = ROOT / "src-tauri" / "icons"
-MAIN_SOURCE = ICONS / "tray-icon-flat.png"
-TRAY_SOURCE = ICONS / "tray-icon-flat.png"
+MAIN_SOURCE = ICONS / "icon-transparent.png"
+TRAY_SOURCE = ICONS / "icon-transparent.png"
 
 
 def fitted_icon(source: Path, size: int, sharpen: bool = False) -> Image.Image:
