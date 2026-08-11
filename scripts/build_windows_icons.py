@@ -47,9 +47,6 @@ def main() -> None:
         sizes=[(size, size) for size in ico_sizes],
     )
 
-    tightly_fitted_icon(TRAY_SOURCE, 64, sharpen=True).save(
-        ICONS / "tray-icon-64.png", optimize=True
-    )
     tightly_fitted_icon(TRAY_SOURCE, 256).save(
         ICONS / "tray-icon-256.png", optimize=True
     )
