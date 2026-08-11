@@ -23,12 +23,15 @@ mod platform {
 
     impl ComApartment {
         fn initialize() -> Option<Self> {
-            match unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) } {
-                Ok(()) => Some(Self::Owned),
+            let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+            if result.is_ok() {
+                Some(Self::Owned)
+            } else if result.0 as u32 == 0x8001_0106 {
                 // COM was already initialized on this thread with another model.
                 // UI Automation can still use that existing apartment.
-                Err(error) if error.code().0 as u32 == 0x8001_0106 => Some(Self::Borrowed),
-                Err(_) => None,
+                Some(Self::Borrowed)
+            } else {
+                None
             }
         }
     }
@@ -46,7 +49,7 @@ mod platform {
             return None;
         }
         let handle = HWND(value as isize as *mut c_void);
-        unsafe { IsWindow(handle) }.as_bool().then_some(handle)
+        unsafe { IsWindow(Some(handle)) }.as_bool().then_some(handle)
     }
 
     unsafe fn terminal_tabs(
