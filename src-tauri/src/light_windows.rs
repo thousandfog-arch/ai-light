@@ -38,12 +38,15 @@ struct SavedPosition {
 struct SavedLayout {
     #[serde(default)]
     positions: HashMap<String, SavedPosition>,
+    #[serde(default)]
+    groups: HashMap<String, u64>,
 }
 
 #[derive(Debug)]
 struct LightWindowState {
     entries: HashMap<String, LightWindowEntry>,
     saved_positions: HashMap<String, SavedPosition>,
+    saved_groups: HashMap<String, u64>,
     pending_moves: HashSet<String>,
     next_group_id: u64,
     user_visible: bool,
@@ -51,11 +54,21 @@ struct LightWindowState {
 
 impl Default for LightWindowState {
     fn default() -> Self {
+        let layout = load_layout();
+        let next_group_id = layout
+            .groups
+            .values()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
         Self {
             entries: HashMap::new(),
-            saved_positions: load_layout().positions,
+            saved_positions: layout.positions,
+            saved_groups: layout.groups,
             pending_moves: HashSet::new(),
-            next_group_id: 1,
+            next_group_id,
             user_visible: true,
         }
     }
@@ -119,11 +132,12 @@ impl LightWindowManager {
                 continue;
             }
 
-            let (label, saved_position) = {
+            let (label, saved_position, saved_group) = {
                 let state = self.state.lock().map_err(|error| error.to_string())?;
                 (
                     unique_window_label(&state.entries, &light.project_id),
                     state.saved_positions.get(&light.project_id).copied(),
+                    state.saved_groups.get(&light.project_id).copied(),
                 )
             };
 
@@ -165,7 +179,7 @@ impl LightWindowManager {
                         y,
                         width: outer_size.width as i32,
                         height: outer_size.height as i32,
-                        group_id: None,
+                        group_id: saved_group,
                         revealed: false,
                     },
                 );
@@ -223,10 +237,18 @@ impl LightWindowManager {
     pub fn detach(&self, label: &str) -> bool {
         let mut changed = false;
         if let Ok(mut state) = self.state.lock() {
-            if let Some(entry) = state.entries.get_mut(label) {
-                changed = entry.group_id.take().is_some();
+            let project_id = state.entries.get_mut(label).and_then(|entry| {
+                let changed = entry.group_id.take().is_some();
+                changed.then(|| entry.project_id.clone())
+            });
+            if let Some(project_id) = project_id {
+                state.saved_groups.remove(&project_id);
+                changed = true;
             }
             normalize_groups(&mut state.entries);
+        }
+        if changed {
+            self.save_positions();
         }
         changed
     }
@@ -250,7 +272,8 @@ impl LightWindowManager {
             state.pending_moves.insert(label.to_string());
             state
                 .saved_positions
-                .insert(project_id, SavedPosition { x, y });
+                .insert(project_id.clone(), SavedPosition { x, y });
+            state.saved_groups.remove(&project_id);
             (x, y)
         };
 
@@ -380,11 +403,16 @@ impl LightWindowManager {
 
     fn reconnect_touching_windows(&self, app: &AppHandle) {
         let mut native_moves = Vec::new();
+        let mut groups_changed = false;
         if let Ok(mut state) = self.state.lock() {
             connect_touching_entries(&mut state);
             native_moves = align_all_groups(&mut state);
+            groups_changed = capture_current_groups(&mut state);
         }
         self.apply_native_moves(app, native_moves);
+        if groups_changed {
+            self.save_positions();
+        }
     }
 
     fn handle_moved(&self, app: &AppHandle, label: &str, x: i32, y: i32) {
@@ -478,6 +506,7 @@ impl LightWindowManager {
 
                 connect_touching_entries(&mut state);
                 native_moves.extend(align_all_groups(&mut state));
+                capture_current_groups(&mut state);
 
                 let saved: Vec<(String, SavedPosition)> = state
                     .entries
@@ -574,7 +603,11 @@ impl LightWindowManager {
                     .collect::<HashSet<_>>()
             })
             .unwrap_or_default();
+        let mut final_moves = HashMap::new();
         for (label, x, y) in moves {
+            final_moves.insert(label, (x, y));
+        }
+        for (label, (x, y)) in final_moves {
             if !revealed.contains(&label) {
                 continue;
             }
@@ -585,12 +618,34 @@ impl LightWindowManager {
     }
 
     fn save_positions(&self) {
-        let positions = match self.state.lock() {
-            Ok(state) => state.saved_positions.clone(),
+        let layout = match self.state.lock() {
+            Ok(state) => SavedLayout {
+                positions: state.saved_positions.clone(),
+                groups: state.saved_groups.clone(),
+            },
             Err(_) => return,
         };
-        let _ = save_layout(&SavedLayout { positions });
+        let _ = save_layout(&layout);
     }
+}
+
+fn capture_current_groups(state: &mut LightWindowState) -> bool {
+    let current = state
+        .entries
+        .values()
+        .filter_map(|entry| {
+            entry
+                .group_id
+                .map(|group_id| (entry.project_id.clone(), group_id))
+        })
+        .collect::<Vec<_>>();
+    let mut changed = false;
+    for (project_id, group_id) in current {
+        if state.saved_groups.insert(project_id, group_id) != Some(group_id) {
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn connect_touching_entries(state: &mut LightWindowState) {
