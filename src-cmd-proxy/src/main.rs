@@ -197,7 +197,7 @@ fn run_process(application_path: &Path, raw_tail: &[u16], creation_flags: u32) -
 #[cfg(target_os = "windows")]
 fn ai_light_hook_event(raw_tail: &[u16]) -> Option<&'static str> {
     let command = String::from_utf16_lossy(raw_tail).to_ascii_lowercase();
-    if !command.contains("ai-light-hook.exe") {
+    if !command.contains("--ai-light-direct") {
         return None;
     }
 
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn detects_an_ai_light_hook_without_parsing_stdin() {
         let command = wide(
-            r#" /d /s /c "C:\Users\kemp\.ai_light\bin\ai-light-hook.exe pre-tool-use""#,
+            r#" /d /s /c "C:\Users\kemp\.ai_light\bin\ai-light-hook.exe --ai-light-direct pre-tool-use""#,
         );
 
         assert_eq!(ai_light_hook_event(&command), Some("pre-tool-use"));
@@ -300,6 +300,15 @@ mod tests {
     #[test]
     fn leaves_other_command_hooks_on_the_real_cmd_path() {
         let command = wide(r#" /d /s /c "C:\Tools\other-hook.exe stop""#);
+
+        assert_eq!(ai_light_hook_event(&command), None);
+    }
+
+    #[test]
+    fn does_not_intercept_a_legacy_ai_light_command_without_the_marker() {
+        let command = wide(
+            r#" /d /s /c "C:\Users\kemp\.ai_light\bin\ai-light-hook.exe pre-tool-use""#,
+        );
 
         assert_eq!(ai_light_hook_event(&command), None);
     }

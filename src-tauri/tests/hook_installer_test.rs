@@ -93,7 +93,11 @@ fn merge_hooks_replaces_existing_ai_light_hooks_for_same_event() {
         session_start[0]["hooks"][0]["command"],
         "/new/ai-light-hook"
     );
-    assert_eq!(session_start[0]["hooks"][0]["args"][0], "session-start");
+    assert_eq!(
+        session_start[0]["hooks"][0]["args"][0],
+        "--ai-light-direct"
+    );
+    assert_eq!(session_start[0]["hooks"][0]["args"][1], "session-start");
 }
 
 #[test]
@@ -106,7 +110,8 @@ fn merge_hooks_writes_event_as_args_to_avoid_shell_parsing() {
         hook["command"],
         r"C:\Users\kemp\.ai_light\bin\ai-light-hook.exe"
     );
-    assert_eq!(hook["args"][0], "notification");
+    assert_eq!(hook["args"][0], "--ai-light-direct");
+    assert_eq!(hook["args"][1], "notification");
 }
 
 #[test]

@@ -13,6 +13,8 @@ const HOOK_EVENTS: [(&str, &str); 8] = [
     ("SessionEnd", "session-end"),
 ];
 
+const DIRECT_HOOK_MARKER: &str = "--ai-light-direct";
+
 pub fn get_claude_settings_path() -> PathBuf {
     home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -184,7 +186,7 @@ pub fn merge_hooks(mut existing: Value, hook_path: &Path) -> Result<Value, Strin
             "hooks": [{
                 "type": "command",
                 "command": command_path.clone(),
-                "args": [hook_event]
+                "args": [DIRECT_HOOK_MARKER, hook_event]
             }]
         }));
     }
@@ -220,6 +222,30 @@ pub fn install_hooks() -> Result<(), Box<dyn std::error::Error>> {
     configure_vscode_claude_cmd_proxy()?;
 
     Ok(())
+}
+
+pub fn upgrade_installed_ai_light_hooks() -> Result<bool, Box<dyn std::error::Error>> {
+    let settings_path = get_claude_settings_path();
+    if !settings_path.exists() {
+        return Ok(false);
+    }
+
+    let existing = read_settings_json(&settings_path)?;
+    if !settings_contains_ai_light_hook(&existing) {
+        return Ok(false);
+    }
+
+    let merged = merge_hooks(existing.clone(), &get_hook_binary_path())?;
+    if merged == existing {
+        return Ok(false);
+    }
+
+    fs::copy(
+        &settings_path,
+        settings_path.with_extension("json.ai-light-direct.bak"),
+    )?;
+    fs::write(&settings_path, serde_json::to_string_pretty(&merged)?)?;
+    Ok(true)
 }
 
 pub fn remove_hooks() -> Result<(), Box<dyn std::error::Error>> {
@@ -677,6 +703,19 @@ fn entry_contains_ai_light_hook(entry: &Value) -> bool {
     })
 }
 
+fn settings_contains_ai_light_hook(settings: &Value) -> bool {
+    settings
+        .get("hooks")
+        .and_then(Value::as_object)
+        .is_some_and(|hooks| {
+            hooks.values().any(|entries| {
+                entries
+                    .as_array()
+                    .is_some_and(|entries| entries.iter().any(entry_contains_ai_light_hook))
+            })
+        })
+}
+
 fn contains_ai_light_hook_for_event(entry: &Value, hook_event: &str) -> bool {
     let Some(commands) = entry.get("hooks").and_then(Value::as_array) else {
         return false;
@@ -692,14 +731,22 @@ fn contains_ai_light_hook_for_event(entry: &Value, hook_event: &str) -> bool {
             return false;
         }
 
-        command
+        let args_match = command
             .get("args")
             .and_then(Value::as_array)
-            .is_some_and(|args| args.iter().any(|arg| arg.as_str() == Some(hook_event)))
-            || command
-                .get("command")
-                .and_then(Value::as_str)
-                .is_some_and(|command| command.contains(hook_event))
+            .is_some_and(|args| {
+                args.iter()
+                    .any(|arg| arg.as_str() == Some(DIRECT_HOOK_MARKER))
+                    && args.iter().any(|arg| arg.as_str() == Some(hook_event))
+            });
+        let inline_match = command
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| {
+                command.contains(DIRECT_HOOK_MARKER) && command.contains(hook_event)
+            });
+
+        args_match || inline_match
     })
 }
 

@@ -155,6 +155,8 @@ fn main() {
                 let _ = ai_light::hook_installer::install_cmd_proxy_binary_from_resource(&resource_dir);
             }
 
+            let _ = ai_light::hook_installer::upgrade_installed_ai_light_hooks();
+
             if ai_light::hook_installer::check_hooks_installed() {
                 let _ = ai_light::hook_installer::configure_vscode_claude_cmd_proxy();
             } else {

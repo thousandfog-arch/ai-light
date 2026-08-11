@@ -79,6 +79,7 @@ fn main() {
                     source = args[i].clone();
                 }
             }
+            "--ai-light-direct" => {}
             "--help" => {
                 eprintln!("Usage: ai-light-hook [--source <tool>] <event_type>");
                 eprintln!("");
@@ -231,7 +232,16 @@ try {
 "#
     .replace("__HOST_WINDOW__", &host_window.to_string());
     if let Ok(output) = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
     {
