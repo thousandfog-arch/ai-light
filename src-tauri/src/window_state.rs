@@ -37,7 +37,7 @@ pub fn restore_main_window_position(
 
 pub fn ensure_window_visible(window: &WebviewWindow) -> Result<(), String> {
     let current = window.outer_position().map_err(|error| error.to_string())?;
-    let target = visible_position(window, current)?;
+    let target = visible_window_position(window, current)?;
 
     if target != current {
         window
@@ -47,6 +47,13 @@ pub fn ensure_window_visible(window: &WebviewWindow) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+pub fn visible_window_position(
+    window: &WebviewWindow,
+    requested: PhysicalPosition<i32>,
+) -> Result<PhysicalPosition<i32>, String> {
+    visible_position(window, requested)
 }
 
 pub fn save_position(x: i32, y: i32) -> Result<(), String> {

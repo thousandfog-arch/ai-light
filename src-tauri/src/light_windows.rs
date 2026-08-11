@@ -14,6 +14,7 @@ const SNAP_DISTANCE: i32 = 16;
 const SNAP_GAP: i32 = 6;
 const ALIGN_DISTANCE: i32 = 24;
 const DETACH_NUDGE_DISTANCE: i32 = 32;
+const WINDOW_PARKING_POSITION: i32 = -32_000;
 
 #[derive(Debug, Clone)]
 struct LightWindowEntry {
@@ -24,6 +25,7 @@ struct LightWindowEntry {
     width: i32,
     height: i32,
     group_id: Option<u64>,
+    revealed: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -133,21 +135,25 @@ impl LightWindowManager {
             let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
                 .title(light.project_label.clone())
                 .inner_size(logical_width, logical_height)
-                .position(x as f64, y as f64)
+                // WebView2 may commit its first native frame before all builder
+                // attributes settle. Create away from every normal desktop and
+                // move on-screen only after the page has rendered and resized.
+                .position(
+                    f64::from(WINDOW_PARKING_POSITION),
+                    f64::from(WINDOW_PARKING_POSITION),
+                )
                 .resizable(false)
                 .decorations(false)
                 .transparent(true)
                 .shadow(false)
-                .always_on_top(true)
+                .always_on_top(false)
+                .focused(false)
                 .skip_taskbar(true)
                 .visible(false)
                 .build()
                 .map_err(|error| error.to_string())?;
 
             let outer_size = window.outer_size().map_err(|error| error.to_string())?;
-            let outer_position = window
-                .outer_position()
-                .unwrap_or_else(|_| PhysicalPosition::new(x, y));
             {
                 let mut state = self.state.lock().map_err(|error| error.to_string())?;
                 state.entries.insert(
@@ -155,11 +161,12 @@ impl LightWindowManager {
                     LightWindowEntry {
                         project_id: light.project_id.clone(),
                         label: label.clone(),
-                        x: outer_position.x,
-                        y: outer_position.y,
+                        x,
+                        y,
                         width: outer_size.width as i32,
                         height: outer_size.height as i32,
                         group_id: None,
+                        revealed: false,
                     },
                 );
             }
@@ -190,7 +197,6 @@ impl LightWindowManager {
                     _ => {}
                 }
             });
-            let _ = crate::window_state::ensure_window_visible(&window);
         }
 
         self.reconnect_touching_windows(app);
@@ -336,11 +342,53 @@ impl LightWindowManager {
     }
 
     pub fn show_when_ready(&self, window: &WebviewWindow) -> Result<bool, String> {
-        if !window.label().starts_with(LIGHT_WINDOW_PREFIX) || !self.is_user_visible() {
+        if !window.label().starts_with(LIGHT_WINDOW_PREFIX) {
             return Ok(false);
         }
-        window.show().map_err(|error| error.to_string())?;
-        Ok(true)
+        let (x, y, should_show) = {
+            let state = self.state.lock().map_err(|error| error.to_string())?;
+            let entry = state
+                .entries
+                .get(window.label())
+                .ok_or_else(|| "Light window state is not available.".to_string())?;
+            (entry.x, entry.y, state.user_visible)
+        };
+        let position = crate::window_state::visible_window_position(
+            window,
+            PhysicalPosition::new(x, y),
+        )?;
+        if let Ok(mut state) = self.state.lock() {
+            state.pending_moves.insert(window.label().to_string());
+        }
+        window
+            .set_position(Position::Physical(position))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_always_on_top(true)
+            .map_err(|error| error.to_string())?;
+        {
+            let mut state = self.state.lock().map_err(|error| error.to_string())?;
+            let project_id = state.entries.get_mut(window.label()).map(|entry| {
+                entry.x = position.x;
+                entry.y = position.y;
+                entry.revealed = true;
+                entry.project_id.clone()
+            });
+            if let Some(project_id) = project_id {
+                state.saved_positions.insert(
+                    project_id,
+                    SavedPosition {
+                        x: position.x,
+                        y: position.y,
+                    },
+                );
+            }
+        }
+        self.save_positions();
+        if should_show {
+            window.show().map_err(|error| error.to_string())?;
+        }
+        Ok(should_show)
     }
 
     fn reconnect_touching_windows(&self, app: &AppHandle) {
@@ -349,11 +397,7 @@ impl LightWindowManager {
             connect_touching_entries(&mut state);
             native_moves = align_all_groups(&mut state);
         }
-        for (label, x, y) in native_moves {
-            if let Some(window) = app.get_webview_window(&label) {
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
-            }
-        }
+        self.apply_native_moves(app, native_moves);
     }
 
     fn handle_moved(&self, app: &AppHandle, label: &str, x: i32, y: i32) {
@@ -468,11 +512,7 @@ impl LightWindowManager {
             }
         }
 
-        for (window_label, move_x, move_y) in native_moves {
-            if let Some(window) = app.get_webview_window(&window_label) {
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(move_x, move_y)));
-            }
-        }
+        self.apply_native_moves(app, native_moves);
 
         if should_save {
             self.save_positions();
@@ -530,12 +570,31 @@ impl LightWindowManager {
             }
         }
 
-        for (window_label, x, y) in native_moves {
-            if let Some(window) = app.get_webview_window(&window_label) {
+        self.apply_native_moves(app, native_moves);
+        self.save_positions();
+    }
+
+    fn apply_native_moves(&self, app: &AppHandle, moves: Vec<(String, i32, i32)>) {
+        let revealed = self
+            .state
+            .lock()
+            .map(|state| {
+                state
+                    .entries
+                    .values()
+                    .filter(|entry| entry.revealed)
+                    .map(|entry| entry.label.clone())
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
+        for (label, x, y) in moves {
+            if !revealed.contains(&label) {
+                continue;
+            }
+            if let Some(window) = app.get_webview_window(&label) {
                 let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
             }
         }
-        self.save_positions();
     }
 
     fn save_positions(&self) {
@@ -744,6 +803,7 @@ mod tests {
             width: 66,
             height: 144,
             group_id: None,
+            revealed: true,
         }
     }
 
