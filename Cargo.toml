@@ -1,3 +1,3 @@
 [workspace]
-members = ["src-tauri", "src-hook", "src-cmd-proxy"]
+members = ["src-tauri", "src-hook", "src-cmd-proxy", "src-windows-ui"]
 resolver = "2"

@@ -5,17 +5,10 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 #[cfg(target_os = "windows")]
 const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
@@ -210,63 +203,11 @@ fn foreground_process() -> Option<(i64, String)> {
 
 #[cfg(target_os = "windows")]
 fn detect_terminal_context(host_window: i64) -> HostContext {
-    let script = r#"
-Add-Type -AssemblyName UIAutomationClient
-$hwnd = [IntPtr]::new(__HOST_WINDOW__)
-$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
-$tabIndex = ''
-$runtimeId = ''
-try {
-    $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)
-    $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-    for ($i = 0; $i -lt $tabs.Count; $i++) {
-      $pattern = $tabs.Item($i).GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
-      if ($pattern.Current.IsSelected) {
-        $tabIndex = [string]$i
-        $runtimeId = ($tabs.Item($i).GetRuntimeId() -join ',')
-        break
-      }
-    }
-} catch {}
-'{0}|{1}' -f $tabIndex, $runtimeId
-"#
-    .replace("__HOST_WINDOW__", &host_window.to_string());
-    if let Ok(output) = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-    {
-        if output.status.success() {
-            let value = String::from_utf8_lossy(&output.stdout);
-            let mut parts = value.trim().splitn(2, '|');
-            let terminal_tab_index = parts.next().and_then(|value| value.parse().ok());
-            let terminal_tab_runtime_id = parts
-                .next()
-                .unwrap_or_default()
-                .split(',')
-                .filter_map(|value| value.parse().ok())
-                .collect();
-            return HostContext {
-                origin: "terminal".to_string(),
-                host_window: Some(host_window),
-                terminal_tab_index,
-                terminal_tab_runtime_id,
-            };
-        }
-    }
     HostContext {
         origin: "terminal".to_string(),
         host_window: Some(host_window),
-        ..HostContext::default()
+        terminal_tab_index: ai_light_windows_ui::selected_terminal_tab_index(host_window),
+        terminal_tab_runtime_id: Vec::new(),
     }
 }
 

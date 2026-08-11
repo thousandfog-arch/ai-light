@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 fs2 = "0.4"
+ai-light-windows-ui = { path = "../src-windows-ui" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
