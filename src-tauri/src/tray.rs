@@ -32,7 +32,7 @@ pub fn create_tray(app: &mut App) -> tauri::Result<()> {
     )?;
 
     let builder = TrayIconBuilder::with_id("ai-light-tray")
-        .icon(tauri::include_image!("./icons/tray-icon-64.png"))
+        .icon(tauri::include_image!("./icons/tray-icon-256.png"))
         .tooltip("AI Light")
         .menu(&menu)
         .show_menu_on_left_click(false)
