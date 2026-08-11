@@ -11,12 +11,34 @@ use std::mem::{size_of, zeroed};
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStrExt;
 #[cfg(target_os = "windows")]
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+#[cfg(target_os = "windows")]
 const INFINITE: u32 = 0xffff_ffff;
+#[cfg(target_os = "windows")]
+const STARTF_USESTDHANDLES: u32 = 0x0000_0100;
+#[cfg(target_os = "windows")]
+const STD_INPUT_HANDLE: u32 = -10i32 as u32;
+#[cfg(target_os = "windows")]
+const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+#[cfg(target_os = "windows")]
+const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+
+#[cfg(target_os = "windows")]
+const AI_LIGHT_HOOK_EVENTS: [&str; 8] = [
+    "session-start",
+    "prompt-submit",
+    "pre-tool-use",
+    "permission-request",
+    "post-tool-use",
+    "notification",
+    "stop",
+    "session-end",
+];
 
 #[cfg(target_os = "windows")]
 type Handle = *mut c_void;
@@ -57,6 +79,7 @@ struct ProcessInformation {
 #[link(name = "kernel32")]
 extern "system" {
     fn GetCommandLineW() -> *mut u16;
+    fn GetStdHandle(std_handle: u32) -> Handle;
     fn CreateProcessW(
         application_name: *const u16,
         command_line: *mut u16,
@@ -81,7 +104,14 @@ fn main() {
 #[cfg(target_os = "windows")]
 fn run() -> i32 {
     let command_line = current_command_line();
-    run_cmd_tail(raw_args_tail(&command_line))
+    let raw_tail = raw_args_tail(&command_line);
+    if let Some(event) = ai_light_hook_event(raw_tail) {
+        if let Some(exit_code) = run_ai_light_hook(event) {
+            return exit_code;
+        }
+    }
+
+    run_cmd_tail(raw_tail)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -94,7 +124,27 @@ fn run_cmd_tail(raw_tail: &[u16]) -> i32 {
     let cmd_path = system_cmd_path();
     env::set_var("ComSpec", &cmd_path);
 
-    let mut application: Vec<u16> = cmd_path.as_os_str().encode_wide().collect();
+    run_process(&cmd_path, raw_tail, DETACHED_PROCESS)
+}
+
+#[cfg(target_os = "windows")]
+fn run_ai_light_hook(event: &str) -> Option<i32> {
+    let hook_path = env::current_exe()
+        .ok()?
+        .parent()?
+        .join("ai-light-hook.exe");
+    if !hook_path.exists() {
+        return None;
+    }
+
+    let mut raw_tail = vec![b' ' as u16];
+    raw_tail.extend(event.encode_utf16());
+    Some(run_process(&hook_path, &raw_tail, CREATE_NO_WINDOW))
+}
+
+#[cfg(target_os = "windows")]
+fn run_process(application_path: &Path, raw_tail: &[u16], creation_flags: u32) -> i32 {
+    let mut application: Vec<u16> = application_path.as_os_str().encode_wide().collect();
     application.push(0);
 
     let mut command_line = Vec::with_capacity(application.len() + raw_tail.len() + 2);
@@ -106,6 +156,10 @@ fn run_cmd_tail(raw_tail: &[u16]) -> i32 {
 
     let mut startup: StartupInfoW = unsafe { zeroed() };
     startup.cb = size_of::<StartupInfoW>() as u32;
+    startup.dw_flags = STARTF_USESTDHANDLES;
+    startup.h_std_input = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    startup.h_std_output = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    startup.h_std_error = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
     let mut process: ProcessInformation = unsafe { zeroed() };
     let created = unsafe {
         CreateProcessW(
@@ -114,7 +168,7 @@ fn run_cmd_tail(raw_tail: &[u16]) -> i32 {
             std::ptr::null(),
             std::ptr::null(),
             1,
-            CREATE_NO_WINDOW,
+            creation_flags,
             std::ptr::null(),
             std::ptr::null(),
             &startup,
@@ -138,6 +192,20 @@ fn run_cmd_tail(raw_tail: &[u16]) -> i32 {
     } else {
         exit_code as i32
     }
+}
+
+#[cfg(target_os = "windows")]
+fn ai_light_hook_event(raw_tail: &[u16]) -> Option<&'static str> {
+    let command = String::from_utf16_lossy(raw_tail).to_ascii_lowercase();
+    if !command.contains("ai-light-hook.exe") {
+        return None;
+    }
+
+    AI_LIGHT_HOOK_EVENTS.iter().copied().find(|event| {
+        command
+            .split(|character: char| !character.is_ascii_alphanumeric() && character != '-')
+            .any(|token| token == *event)
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -218,6 +286,22 @@ mod tests {
     #[test]
     fn forwards_the_real_cmd_exit_code() {
         assert_eq!(run_cmd_tail(&wide(r#" /d /s /c "exit /b 37""#)), 37);
+    }
+
+    #[test]
+    fn detects_an_ai_light_hook_without_parsing_stdin() {
+        let command = wide(
+            r#" /d /s /c "C:\Users\kemp\.ai_light\bin\ai-light-hook.exe pre-tool-use""#,
+        );
+
+        assert_eq!(ai_light_hook_event(&command), Some("pre-tool-use"));
+    }
+
+    #[test]
+    fn leaves_other_command_hooks_on_the_real_cmd_path() {
+        let command = wide(r#" /d /s /c "C:\Tools\other-hook.exe stop""#);
+
+        assert_eq!(ai_light_hook_event(&command), None);
     }
 
     #[test]
