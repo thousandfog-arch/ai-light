@@ -4,6 +4,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use toml::Value as TomlValue;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 /// Identify the project represented by a working directory.
 ///
 /// Returns `(project_id, project_label)`, where `project_id` is the git root
@@ -18,12 +24,19 @@ pub fn identify_project(cwd: &Path) -> (String, String) {
 }
 
 fn find_git_root(cwd: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("rev-parse")
         .arg("--show-toplevel")
-        .current_dir(cwd)
-        .output()
-        .ok()?;
+        .current_dir(cwd);
+
+    // AI Light runs as a GUI application. Without this flag, every project
+    // identification can allocate a console; systems that delegate consoles
+    // to Windows Terminal visibly flash or refresh the active terminal.
+    #[cfg(target_os = "windows")]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let output = command.output().ok()?;
 
     if !output.status.success() {
         return None;

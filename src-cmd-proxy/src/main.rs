@@ -16,8 +16,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(target_os = "windows")]
-const DETACHED_PROCESS: u32 = 0x0000_0008;
-#[cfg(target_os = "windows")]
 const INFINITE: u32 = 0xffff_ffff;
 #[cfg(target_os = "windows")]
 const STARTF_USESTDHANDLES: u32 = 0x0000_0100;
@@ -124,7 +122,7 @@ fn run_cmd_tail(raw_tail: &[u16]) -> i32 {
     let cmd_path = system_cmd_path();
     env::set_var("ComSpec", &cmd_path);
 
-    run_process(&cmd_path, raw_tail, DETACHED_PROCESS)
+    run_process(&cmd_path, raw_tail, CREATE_NO_WINDOW)
 }
 
 #[cfg(target_os = "windows")]
