@@ -17,12 +17,16 @@
         "title": "AI Light",
         "width": 66,
         "height": 144,
+        "x": -32000,
+        "y": -32000,
         "resizable": false,
         "decorations": false,
         "transparent": true,
         "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "focused": false,
+        "visible": false
       },
       {
         "label": "appearance",

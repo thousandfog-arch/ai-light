@@ -83,8 +83,9 @@ fn main() {
                 .expect("main window should exist");
 
             tray::create_tray(app)?;
-            window_state::restore_main_window_position(&window, &app_config)
-                .map_err(std::io::Error::other)?;
+            // The legacy main WebView is now only a hidden frontend host. Actual
+            // traffic lights use their own independently movable windows.
+            let _ = window.hide();
 
             let close_manager = Arc::clone(&light_window_manager);
             let close_app = app.handle().clone();

@@ -201,13 +201,9 @@ impl LightWindowManager {
 
         self.reconnect_touching_windows(app);
 
-        if lights.is_empty() {
-            if self.is_user_visible() {
-                if let Some(main) = app.get_webview_window("main") {
-                    let _ = main.show();
-                }
-            }
-        } else if let Some(main) = app.get_webview_window("main") {
+        // Never reveal the legacy main WebView. It used to flash in the centre
+        // and steal focus while the light list transitioned through empty.
+        if let Some(main) = app.get_webview_window("main") {
             let _ = main.hide();
         }
 
@@ -313,16 +309,14 @@ impl LightWindowManager {
     }
 
     pub fn toggle_all(&self, app: &AppHandle) -> Result<(), String> {
-        let (show, has_lights) = {
+        let show = {
             let mut state = self.state.lock().map_err(|error| error.to_string())?;
             state.user_visible = !state.user_visible;
-            (state.user_visible, !state.entries.is_empty())
+            state.user_visible
         };
 
         for window in app.webview_windows().values() {
-            let should_manage = window.label().starts_with(LIGHT_WINDOW_PREFIX)
-                || (window.label() == "main" && !has_lights);
-            if !should_manage {
+            if !window.label().starts_with(LIGHT_WINDOW_PREFIX) {
                 continue;
             }
             if show {
@@ -332,13 +326,6 @@ impl LightWindowManager {
             }
         }
         Ok(())
-    }
-
-    fn is_user_visible(&self) -> bool {
-        self.state
-            .lock()
-            .map(|state| state.user_visible)
-            .unwrap_or(true)
     }
 
     pub fn show_when_ready(&self, window: &WebviewWindow) -> Result<bool, String> {
