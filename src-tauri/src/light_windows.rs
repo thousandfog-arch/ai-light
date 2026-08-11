@@ -1,4 +1,4 @@
-use ai_light::config::get_config_dir;
+use ai_light::config::{get_config_dir, load_app_config};
 use ai_light::types::LightState;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -537,12 +537,31 @@ impl LightWindowManager {
 
     fn handle_resized(&self, app: &AppHandle, label: &str, width: i32, height: i32) {
         let mut native_moves = Vec::new();
+        let (layout_width, resize_tolerance) = app
+            .get_webview_window(label)
+            .and_then(|window| window.scale_factor().ok())
+            .map(|scale_factor| {
+                (
+                    physical_light_width(load_app_config().light_width, scale_factor),
+                    (4.0 * scale_factor).round().max(2.0) as i32,
+                )
+            })
+            .unwrap_or((width, 4));
+        if width > layout_width.saturating_add(resize_tolerance) {
+            // The HTML context menu is rendered inside the transparent light
+            // window, so the frontend briefly enlarges both dimensions. Ignore
+            // that popup-only resize; closing the menu emits the real size.
+            return;
+        }
         {
             let Ok(mut state) = self.state.lock() else {
                 return;
             };
             let group_id = if let Some(entry) = state.entries.get_mut(label) {
-                entry.width = width;
+                // Context menus temporarily widen the transparent WebView to
+                // roughly 150 px. That popup width must not become a permanent
+                // empty slot in the group's snapping geometry.
+                entry.width = layout_width;
                 entry.height = height;
                 entry.group_id
             } else {
@@ -694,6 +713,10 @@ pub fn light_dimensions(width: u16, label_font_size: u16) -> (f64, f64) {
     let width = f64::from(width.clamp(44, 100));
     let label_height = f64::from(label_font_size.clamp(8, 24)) * 1.55 + 4.0;
     (width, (width * 2.08 + label_height).ceil())
+}
+
+fn physical_light_width(width: u16, scale_factor: f64) -> i32 {
+    (f64::from(width.clamp(44, 100)) * scale_factor.max(0.1)).round() as i32
 }
 
 fn unique_window_label(entries: &HashMap<String, LightWindowEntry>, project_id: &str) -> String {
@@ -882,5 +905,12 @@ mod tests {
         assert_eq!(detach_nudge_target(&entries, "a"), Some((68, 100)));
         assert_eq!(detach_nudge_target(&entries, "b"), Some((172, 68)));
         assert_eq!(detach_nudge_target(&entries, "c"), Some((276, 100)));
+    }
+
+    #[test]
+    fn derives_group_width_from_appearance_instead_of_popup_window_width() {
+        assert_eq!(physical_light_width(60, 1.0), 60);
+        assert_eq!(physical_light_width(60, 1.5), 90);
+        assert_eq!(physical_light_width(200, 2.0), 200);
     }
 }
