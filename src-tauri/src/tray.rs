@@ -31,7 +31,8 @@ pub fn create_tray(app: &mut App) -> tauri::Result<()> {
         &[&toggle_item, &appearance_item, &settings_item, &quit_item],
     )?;
 
-    let mut builder = TrayIconBuilder::with_id("ai-light-tray")
+    let builder = TrayIconBuilder::with_id("ai-light-tray")
+        .icon(tauri::include_image!("./icons/tray-icon-64.png"))
         .tooltip("AI Light")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -57,10 +58,6 @@ pub fn create_tray(app: &mut App) -> tauri::Result<()> {
                 let _ = toggle_main_window(tray.app_handle());
             }
         });
-
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
-    }
 
     builder.build(app)?;
     Ok(())
